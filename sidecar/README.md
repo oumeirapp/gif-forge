@@ -1,0 +1,50 @@
+# Banner Forge sidecar
+
+`banner-forge-sidecar` converts local HTML banners to optimized GIFs. Inputs may be direct HTML files or package directories containing `index.html`. It loads each banner from a loopback-only HTTP server in Chromium, waits for fonts/images/video metadata, detects common ad dimensions, finds Web Animations plus modern GSAP and legacy `window.tl` timelines, and captures a fixed-DPR timeline. Exact adjacent PNG frames are coalesced before FFmpeg encoding.
+
+## Install, test, and build
+
+Run these commands from `sidecar/`:
+
+```sh
+npm install
+npm test
+npm run build
+```
+
+The build uses the CommonJS API from `@yao-pkg/pkg`, writes `dist/banner-forge-sidecar` (or `.exe`), and copies it to `src-tauri/binaries/` with the current Rust target triple. Override the package target with `BANNER_FORGE_PKG_TARGET` and the Rust filename target with `BANNER_FORGE_RUST_TARGET`.
+
+The packaged executable does not embed Chromium or FFmpeg. The Rust Gifski worker is built beside the Node executable and bundled by Tauri. Set these variables only when overriding discovery:
+
+- Chromium: `BANNER_FORGE_CHROMIUM` (also accepts `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` or `CHROME_PATH`)
+- FFmpeg: `BANNER_FORGE_FFMPEG` (also accepts `FFMPEG_PATH`)
+- Gifski worker: `BANNER_FORGE_GIFSKI_WORKER`
+
+When no explicit path is set, the sidecar checks packaged sibling locations, standard browser locations, then `PATH` where appropriate.
+
+## Protocol
+
+Pass one JSON request as the second CLI argument:
+
+```sh
+banner-forge-sidecar convert '{"protocolVersion":4,"inputPaths":["/absolute/banner-package"],"outputDirectory":"/absolute/out","config":{"outputFps":15,"maxColors":256,"dithering":"adaptive","gifskiQuality":80,"maxDurationSeconds":30,"loopMode":"auto"}}'
+```
+
+The same JSON can be sent as one line on stdin. The desktop app uses stdin so large batches are not constrained by platform command-line length limits.
+
+Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `outputFps` accepts 4, 12, 15, or 24 (default 15); `maxColors` accepts 64, 128, 192, or 256 (default 256). The sidecar captures at 24 FPS, then resamples at the selected output rate. Legacy quality presets, byte targets, editable capture-FPS fields, and Gifsicle modes are rejected.
+
+`dithering` accepts `adaptive`, `none`, `bayer-5`, `bayer-4`, or `gradfun-bayer-5`. Adaptive compares all four concrete methods using VMAF/CAMBI and chooses the smallest candidate within 0.25 quality-score points of the best result. Without those metrics, Adaptive uses Light Bayer and records a warning. A manual choice encodes only that method. Every method uses a stable global palette generated from full-frame statistics.
+
+`gifskiQuality` accepts an integer from 1–100 and defaults to 80. It is a quality score rather than a file-size percentage: lower values permit stronger lossy compression, while 100 disables Gifski's lossy LZW pass. The bundled worker keeps Gifski's palette and motion quality at 100 so this control does not silently change the selected FPS, palette ceiling, or upstream dithering mode.
+
+`loopMode` accepts `"auto"`, `"forever"`/`"infinite"`, `"once"`, or a non-negative numeric repeat count. Auto mode preserves detectable CSS/GSAP infinite looping and otherwise emits a play-once GIF. Input packages are processed independently.
+
+Standard output is newline-delimited JSON only:
+
+- `progress`: load, capture, coalesce, encode, quality analysis, and validation status
+- `result`: GIF/report paths, requested and effective FPS, palette, dithering, compression, exact byte count, and warnings
+- `error`: a request-level or input-level failure
+- `complete`: total/succeeded/failed counts
+
+The process exits `0` if every input produces a structurally valid GIF, `2` after partial/input failures, and `1` for an invalid command or request. File size is informational and never changes the selected FPS, palette, dithering, or Gifski quality. Each GIF receives a schema-v4 `.report.json` containing capture timing, selected controls, candidate metrics, compression status, dimensions, duration, looping, and exact bytes.

@@ -1,0 +1,41 @@
+# Dependencies
+/node_modules/
+/sidecar/node_modules/
+
+# Build outputs
+/dist/
+/dist-ssr/
+/sidecar/dist/
+/gifski-worker/target/
+/src-tauri/binaries/*
+/src-tauri/target/
+
+# Logs
+/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local environment and configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Test tooling
+/.playwright-cli/
+/output/playwright/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

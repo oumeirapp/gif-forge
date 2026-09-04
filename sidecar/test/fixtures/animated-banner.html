@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="ad.size" content="width=120,height=60">
+    <style>
+      * { box-sizing: border-box; }
+      html, body { width: 120px; height: 60px; margin: 0; overflow: hidden; }
+      #banner { position: relative; width: 120px; height: 60px; background: #10203b; color: white; font: 700 14px sans-serif; }
+      span { position: absolute; left: 8px; top: 20px; animation: travel 0.4s linear both; }
+      @keyframes travel { from { transform: translateX(0); } to { transform: translateX(35px); } }
+    </style>
+  </head>
+  <body><div id="banner" data-banner><span>Forge</span></div></body>
+</html>
