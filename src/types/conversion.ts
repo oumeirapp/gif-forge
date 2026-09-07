@@ -1,4 +1,5 @@
 export type LoopMode = "auto" | "once" | "infinite"
+export type OutputMode = "forge" | "size-limited" | "both"
 export type OutputFps = 4 | 12 | 15 | 24
 export type PaletteSize = 64 | 128 | 192 | 256
 export type DitheringMode = "adaptive" | "none" | "bayer-5" | "bayer-4" | "gradfun-bayer-5"
@@ -10,6 +11,8 @@ export interface ConversionConfig {
   gifskiQuality: number
   maxDurationSeconds: number
   loopMode: LoopMode
+  outputMode: OutputMode
+  maxBytes: number
 }
 
 export interface ConversionFormConfig {
@@ -19,6 +22,8 @@ export interface ConversionFormConfig {
   gifskiQuality: number
   maxDurationSeconds: number
   loopMode: LoopMode
+  outputMode: OutputMode
+  maxBytes: number
 }
 
 export interface ConversionFormConfigValidity {
@@ -26,6 +31,7 @@ export interface ConversionFormConfigValidity {
   maxColors: boolean
   gifskiQuality: boolean
   maxDurationSeconds: boolean
+  maxBytes: boolean
 }
 
 export interface ConversionRequest {
@@ -66,6 +72,10 @@ export interface ResultEvent {
   ditheringLabel?: string
   gifskiQuality?: number
   compressionLabel?: string
+  outputType?: "forge" | "delivery"
+  targetBytes?: number
+  metTarget?: boolean
+  candidatesTested?: number
   adjusted?: boolean
   warnings?: string[]
   status?: "success" | "warning" | "error"

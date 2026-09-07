@@ -9,6 +9,7 @@ const CAPTURE_FPS = 24;
 const OUTPUT_FPS_OPTIONS = Object.freeze([4, 12, 15, 24]);
 const PALETTE_OPTIONS = Object.freeze([64, 128, 192, 256]);
 const DITHERING_OPTIONS = Object.freeze(['adaptive', 'none', 'bayer-5', 'bayer-4', 'gradfun-bayer-5']);
+const OUTPUT_MODES = Object.freeze(['forge', 'size-limited', 'both']);
 
 const DEFAULTS = Object.freeze({
   outputFps: 15,
@@ -18,6 +19,8 @@ const DEFAULTS = Object.freeze({
   captureFps: CAPTURE_FPS,
   maxDurationSeconds: 30,
   loopMode: 'auto',
+  outputMode: 'forge',
+  maxBytes: 150_000,
 });
 
 function normalizeConfig(config = {}) {
@@ -25,7 +28,7 @@ function normalizeConfig(config = {}) {
     throw new Error('config must be a JSON object.');
   }
 
-  const legacyFields = ['quality', 'preferredBytes', 'maxBytes', 'captureFps', 'compression'];
+  const legacyFields = ['quality', 'preferredBytes', 'captureFps', 'compression'];
   const suppliedLegacyFields = legacyFields.filter((field) => Object.hasOwn(config, field));
   if (suppliedLegacyFields.length > 0) {
     throw new Error(`Protocol v4 does not accept legacy preset, size, capture, or compression-mode fields: ${suppliedLegacyFields.join(', ')}.`);
@@ -59,6 +62,16 @@ function normalizeConfig(config = {}) {
     throw new Error('maxDurationSeconds must be a number from 0.1 through 60.');
   }
 
+  const outputMode = config.outputMode ?? DEFAULTS.outputMode;
+  if (!OUTPUT_MODES.includes(outputMode)) {
+    throw new Error(`outputMode must be one of: ${OUTPUT_MODES.join(', ')}.`);
+  }
+
+  const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes;
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 10_000_000) {
+    throw new Error('maxBytes must be a whole number from 1 through 10000000.');
+  }
+
   return {
     outputFps,
     maxColors,
@@ -67,6 +80,8 @@ function normalizeConfig(config = {}) {
     captureFps: CAPTURE_FPS,
     maxDurationSeconds,
     loopMode: normalizeLoopMode(config.loopMode),
+    outputMode,
+    maxBytes,
   };
 }
 
@@ -109,14 +124,24 @@ function safeStem(inputPath) {
   return cleaned || 'banner';
 }
 
-function uniqueOutputPaths(inputPath, outputDirectory) {
+function uniqueOutputPaths(inputPath, outputDirectory, maxBytes = DEFAULTS.maxBytes) {
   const stem = safeStem(inputPath);
   let suffix = '';
   let index = 1;
   while (true) {
-    const gifPath = path.join(outputDirectory, `${stem}${suffix}.gif`);
-    const reportPath = path.join(outputDirectory, `${stem}${suffix}.report.json`);
-    if (!fs.existsSync(gifPath) && !fs.existsSync(reportPath)) return { gifPath, reportPath };
+    const outputStem = `${stem}${suffix}`;
+    const deliveryLabel = `${Math.round(maxBytes / 1_000)}kb`;
+    const forge = {
+      gifPath: path.join(outputDirectory, `${outputStem}.gif`),
+      reportPath: path.join(outputDirectory, `${outputStem}.report.json`),
+    };
+    const delivery = {
+      gifPath: path.join(outputDirectory, `${outputStem}-${deliveryLabel}.gif`),
+      reportPath: path.join(outputDirectory, `${outputStem}-${deliveryLabel}.report.json`),
+    };
+    if (![forge.gifPath, forge.reportPath, delivery.gifPath, delivery.reportPath].some((outputPath) => fs.existsSync(outputPath))) {
+      return { forge, delivery };
+    }
     suffix = `-${++index}`;
   }
 }
@@ -154,6 +179,7 @@ module.exports = {
   OUTPUT_FPS_OPTIONS,
   PALETTE_OPTIONS,
   DITHERING_OPTIONS,
+  OUTPUT_MODES,
   DEFAULTS,
   normalizeConfig,
   normalizeLoopMode,

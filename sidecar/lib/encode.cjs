@@ -224,6 +224,49 @@ function fallbackCandidate(items) {
   return items.find((item) => item.candidate.id === FALLBACK_CANDIDATE_ID) ?? items[0];
 }
 
+function lowerValues(values, selected) {
+  return values.filter((value) => value <= selected).sort((left, right) => right - left);
+}
+
+function deliveryProfiles(config) {
+  const profiles = [];
+  const seen = new Set();
+  const add = (partial) => {
+    const profile = { ...config, ...partial };
+    const key = JSON.stringify(profile);
+    if (!seen.has(key)) {
+      seen.add(key);
+      profiles.push(profile);
+    }
+  };
+
+  add({});
+  const deliveryDithering = config.dithering === 'adaptive' ? 'bayer-5' : config.dithering;
+  for (const quality of lowerValues([80, 60, 40, 20], config.gifskiQuality)) {
+    add({ dithering: deliveryDithering, gifskiQuality: quality });
+  }
+  for (const maxColors of lowerValues([256, 192, 128, 64], config.maxColors)) {
+    for (const quality of lowerValues([60, 40], config.gifskiQuality)) {
+      add({ dithering: deliveryDithering, maxColors, gifskiQuality: quality });
+    }
+  }
+  for (const maxColors of lowerValues([128, 64], config.maxColors)) {
+    add({ dithering: 'none', maxColors, gifskiQuality: Math.min(config.gifskiQuality, 40) });
+  }
+  for (const outputFps of lowerValues([24, 15, 12, 4], config.outputFps)) {
+    add({ outputFps, maxColors: 64, dithering: 'none', gifskiQuality: Math.min(config.gifskiQuality, 40) });
+  }
+  return profiles;
+}
+
+function selectDeliveryCandidate(candidates, maxBytes) {
+  const withinBudget = candidates.find((candidate) => candidate.validation.bytes <= maxBytes);
+  if (withinBudget) return withinBudget;
+  return candidates.reduce((smallest, candidate) => (
+    candidate.validation.bytes < smallest.validation.bytes ? candidate : smallest
+  ));
+}
+
 async function encodeGif({ frames, width, height, durationMs, config, onProgress = () => {} }) {
   if (!frames.length) throw new Error('No captured frames were available for encoding.');
 
@@ -416,5 +459,7 @@ module.exports = {
   applyGifskiCompression,
   parseQualityMetrics,
   selectCandidate,
+  deliveryProfiles,
+  selectDeliveryCandidate,
   encodeGif,
 };

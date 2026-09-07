@@ -50,24 +50,30 @@ async function main(argv) {
         emit({ type: 'progress', inputPath, index, ...progress });
       });
       summary.succeeded += 1;
-      const { report } = converted;
-      emit({
-        type: 'result',
-        inputPath,
-        outputPath: converted.gifPath,
-        reportPath: converted.reportPath,
-        bytes: report.validation.bytes,
-        durationMs: report.validation.durationMs,
-        requestedFps: report.encoding.requestedFps,
-        effectiveFps: report.validation.effectiveFps,
-        maxColors: report.encoding.maxColors,
-        dithering: report.encoding.selectedCandidate.id,
-        ditheringLabel: report.encoding.selectedCandidate.label,
-        gifskiQuality: report.encoding.compression.quality,
-        compressionLabel: report.encoding.compression.label,
-        adjusted: report.warnings.length > 0,
-        warnings: report.warnings,
-      });
+      for (const output of converted.outputs) {
+        const { report } = output;
+        emit({
+          type: 'result',
+          inputPath,
+          outputPath: output.gifPath,
+          reportPath: output.reportPath,
+          outputType: report.outputType,
+          targetBytes: report.delivery?.targetBytes,
+          metTarget: report.delivery?.metTarget,
+          candidatesTested: report.delivery?.candidatesTested,
+          bytes: report.validation.bytes,
+          durationMs: report.validation.durationMs,
+          requestedFps: report.encoding.requestedFps,
+          effectiveFps: report.validation.effectiveFps,
+          maxColors: report.encoding.maxColors,
+          dithering: report.encoding.selectedCandidate.id,
+          ditheringLabel: report.encoding.selectedCandidate.label,
+          gifskiQuality: report.encoding.compression.quality,
+          compressionLabel: report.encoding.compression.label,
+          adjusted: report.warnings.length > 0,
+          warnings: report.warnings,
+        });
+      }
     } catch (error) {
       summary.failed += 1;
       emit({ type: 'error', inputPath, message: error.message });

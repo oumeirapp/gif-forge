@@ -32,7 +32,7 @@ banner-forge-sidecar convert '{"protocolVersion":4,"inputPaths":["/absolute/bann
 
 The same JSON can be sent as one line on stdin. The desktop app uses stdin so large batches are not constrained by platform command-line length limits.
 
-Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `outputFps` accepts 4, 12, 15, or 24 (default 15); `maxColors` accepts 64, 128, 192, or 256 (default 256). The sidecar captures at 24 FPS, then resamples at the selected output rate. Legacy quality presets, byte targets, editable capture-FPS fields, and Gifsicle modes are rejected.
+Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `outputFps` accepts 4, 12, 15, or 24 (default 15); `maxColors` accepts 64, 128, 192, or 256 (default 256). The sidecar captures at 24 FPS, then resamples at the selected output rate. `outputMode` accepts `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes and defaults to 150000. Legacy quality presets, editable capture-FPS fields, and Gifsicle modes are rejected.
 
 `dithering` accepts `adaptive`, `none`, `bayer-5`, `bayer-4`, or `gradfun-bayer-5`. Adaptive compares all four concrete methods using VMAF/CAMBI and chooses the smallest candidate within 0.25 quality-score points of the best result. Without those metrics, Adaptive uses Light Bayer and records a warning. A manual choice encodes only that method. Every method uses a stable global palette generated from full-frame statistics.
 
@@ -43,8 +43,8 @@ Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `
 Standard output is newline-delimited JSON only:
 
 - `progress`: load, capture, coalesce, encode, quality analysis, and validation status
-- `result`: GIF/report paths, requested and effective FPS, palette, dithering, compression, exact byte count, and warnings
+- `result`: GIF/report paths, output type, requested and effective FPS, palette, dithering, compression, exact byte count, and warnings. Delivery results also expose the byte target, whether it was met, and candidates tested.
 - `error`: a request-level or input-level failure
 - `complete`: total/succeeded/failed counts
 
-The process exits `0` if every input produces a structurally valid GIF, `2` after partial/input failures, and `1` for an invalid command or request. File size is informational and never changes the selected FPS, palette, dithering, or Gifski quality. Each GIF receives a schema-v4 `.report.json` containing capture timing, selected controls, candidate metrics, compression status, dimensions, duration, looping, and exact bytes.
+The process exits `0` if every input produces a structurally valid GIF, `2` after partial/input failures, and `1` for an invalid command or request. Forge output retains the selected controls. Size-limited output reuses the captured frames, tests a bounded sequence of lower-cost settings while preserving dimensions, and writes the first candidate within the target; if none fit, it writes the smallest. Each GIF receives a schema-v5 `.report.json` containing capture timing, selected controls, candidate metrics, compression status, dimensions, duration, looping, exact bytes, and delivery-budget status where applicable.

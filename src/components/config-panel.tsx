@@ -20,6 +20,7 @@ import type {
   ConversionFormConfigValidity,
   DitheringMode,
   LoopMode,
+  OutputMode,
   OutputFps,
   PaletteSize,
 } from "@/types/conversion"
@@ -39,6 +40,11 @@ const LOOP_SELECT_ITEMS = [
   { value: "once", label: "Play once" },
   { value: "infinite", label: "Loop forever" },
 ]
+const OUTPUT_MODE_SELECT_ITEMS = [
+  { value: "forge", label: "Forge only" },
+  { value: "size-limited", label: "Size-limited only" },
+  { value: "both", label: "Both outputs" },
+]
 
 export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPanelProps) {
   const selectedFps = findOption(FPS_OPTIONS, config.outputFps)
@@ -50,6 +56,9 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
   const durationDescriptionIds = validity.maxDurationSeconds
     ? "max-duration-description"
     : "max-duration-description max-duration-error"
+  const maxBytesDescriptionIds = validity.maxBytes
+    ? "max-bytes-description"
+    : "max-bytes-description max-bytes-error"
 
   function updateDuration(value: string) {
     const numericValue = value.trim() === "" ? 0 : Number(value)
@@ -65,6 +74,11 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
       ...config,
       gifskiQuality: Number.isFinite(numericValue) ? numericValue : 0,
     })
+  }
+
+  function updateMaxBytes(value: string) {
+    const kilobytes = value.trim() === "" ? 0 : Number(value)
+    onChange({ ...config, maxBytes: Number.isFinite(kilobytes) ? Math.round(kilobytes * 1_000) : 0 })
   }
 
   return (
@@ -219,6 +233,52 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
             </Select>
             <FieldDescription id="loop-mode-description">Auto follows source behavior.</FieldDescription>
           </Field>
+
+          <Field className="config-wide" data-disabled={disabled || undefined}>
+            <FieldLabel htmlFor="output-mode">Output mode</FieldLabel>
+            <Select
+              items={OUTPUT_MODE_SELECT_ITEMS}
+              value={config.outputMode}
+              disabled={disabled}
+              onValueChange={(value) => onChange({ ...config, outputMode: value as OutputMode })}
+            >
+              <SelectTrigger id="output-mode" className="config-select" aria-describedby="output-mode-description">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {OUTPUT_MODE_SELECT_ITEMS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FieldDescription id="output-mode-description">Both preserves your Forge configuration and also creates a delivery-optimized GIF.</FieldDescription>
+          </Field>
+
+          {config.outputMode !== "forge" ? (
+            <Field data-invalid={!validity.maxBytes || undefined} data-disabled={disabled || undefined}>
+              <FieldLabel htmlFor="max-bytes">Delivery limit</FieldLabel>
+              <div className="unit-input">
+                <Input
+                  id="max-bytes"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  inputMode="numeric"
+                  disabled={disabled}
+                  value={config.maxBytes / 1_000}
+                  aria-invalid={!validity.maxBytes}
+                  aria-describedby={maxBytesDescriptionIds}
+                  onChange={(event) => updateMaxBytes(event.target.value)}
+                />
+                <span aria-hidden="true">KB</span>
+              </div>
+              <FieldDescription id="max-bytes-description">Uses decimal KB. The delivery output keeps dimensions fixed and searches for the best fit.</FieldDescription>
+              {!validity.maxBytes ? <FieldError id="max-bytes-error">Enter a whole number from 1–10,000 KB.</FieldError> : null}
+            </Field>
+          ) : null}
         </FieldGroup>
       </CardContent>
     </Card>

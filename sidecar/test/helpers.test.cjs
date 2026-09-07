@@ -10,10 +10,12 @@ const {
   OUTPUT_FPS_OPTIONS,
   PALETTE_OPTIONS,
   DITHERING_OPTIONS: CONFIG_DITHERING_OPTIONS,
+  OUTPUT_MODES,
   normalizeConfig,
   validateRequest,
   resolveInputPath,
   safeStem,
+  uniqueOutputPaths,
   coalesceFrames,
   gifLoopArgument,
   gifDurationToleranceMs,
@@ -30,6 +32,8 @@ const {
   gifskiWorkerArguments,
   parseQualityMetrics,
   selectCandidate,
+  deliveryProfiles,
+  selectDeliveryCandidate,
   encodeGif,
 } = require('../lib/encode.cjs');
 const {
@@ -73,6 +77,8 @@ test('configuration defaults are explicit and every dropdown value is accepted',
     captureFps: 24,
     maxDurationSeconds: 30,
     loopMode: 'auto',
+    outputMode: 'forge',
+    maxBytes: 150_000,
   });
   assert.equal(CAPTURE_FPS, 24);
   assert.deepEqual(OUTPUT_FPS_OPTIONS, [4, 12, 15, 24]);
@@ -93,6 +99,8 @@ test('configuration defaults are explicit and every dropdown value is accepted',
     captureFps: 24,
     maxDurationSeconds: 30,
     loopMode: 'once',
+    outputMode: 'forge',
+    maxBytes: 150_000,
   });
   assert.throws(() => normalizeConfig({ outputFps: 8 }), /outputFps/);
   assert.throws(() => normalizeConfig({ maxColors: 48 }), /maxColors/);
@@ -104,6 +112,12 @@ test('configuration defaults are explicit and every dropdown value is accepted',
   assert.throws(() => normalizeConfig({ maxDurationSeconds: 0 }), /maxDurationSeconds/);
   assert.throws(() => normalizeConfig({ quality: 'high' }), /legacy/);
   assert.throws(() => normalizeConfig({ preferredBytes: 90_000 }), /legacy/);
+  assert.deepEqual(OUTPUT_MODES, ['forge', 'size-limited', 'both']);
+  assert.deepEqual(normalizeConfig({ outputMode: 'both', maxBytes: 90_000 }).outputMode, 'both');
+  assert.equal(normalizeConfig({ outputMode: 'both', maxBytes: 90_000 }).maxBytes, 90_000);
+  assert.throws(() => normalizeConfig({ outputMode: 'archive' }), /outputMode/);
+  assert.throws(() => normalizeConfig({ maxBytes: 0 }), /maxBytes/);
+  assert.throws(() => normalizeConfig({ maxBytes: 150_000.5 }), /maxBytes/);
 });
 
 test('protocol v4 request validation resolves paths and rejects legacy requests', () => {
@@ -116,6 +130,7 @@ test('protocol v4 request validation resolves paths and rejects legacy requests'
   assert.equal(request.inputPaths.length, 1);
   assert.equal(request.config.loopMode, 2);
   assert.equal(request.config.outputFps, 4);
+  assert.equal(request.config.outputMode, 'forge');
   assert.throws(() => validateRequest({ inputPaths: [], outputDirectory: 'out' }), /protocolVersion/);
   assert.throws(() => validateRequest({ protocolVersion: 2, inputPaths: [], outputDirectory: 'out' }), /protocolVersion/);
   assert.throws(() => validateRequest({ protocolVersion: 4, inputPaths: [], outputDirectory: 'out' }), /non-empty/);
@@ -233,6 +248,20 @@ test('safe output stems cannot inject directories', () => {
   assert.equal(safeStem('/tmp/🔥.html'), 'banner');
 });
 
+test('output paths reserve Forge and delivery names without overwriting existing files', () => {
+  const outputPaths = uniqueOutputPaths('/tmp/My banner!.html', '/tmp/output', 150_000);
+  assert.deepEqual(outputPaths, {
+    forge: {
+      gifPath: '/tmp/output/My-banner.gif',
+      reportPath: '/tmp/output/My-banner.report.json',
+    },
+    delivery: {
+      gifPath: '/tmp/output/My-banner-150kb.gif',
+      reportPath: '/tmp/output/My-banner-150kb.report.json',
+    },
+  });
+});
+
 test('identical adjacent PNGs are coalesced with exact byte comparison', () => {
   const a = Buffer.from('a');
   const b = Buffer.from('b');
@@ -279,6 +308,40 @@ test('encoding candidates keep FPS and color quality fixed', () => {
       loopCount: 0,
     },
   );
+});
+
+test('delivery profiles lower compression cost while preserving dimensions and selected settings first', () => {
+  const profiles = deliveryProfiles({
+    outputFps: 24,
+    maxColors: 256,
+    dithering: 'adaptive',
+    gifskiQuality: 90,
+    loopMode: 'once',
+  });
+
+  assert.deepEqual(profiles[0], {
+    outputFps: 24,
+    maxColors: 256,
+    dithering: 'adaptive',
+    gifskiQuality: 90,
+    loopMode: 'once',
+  });
+  assert.ok(profiles.some((profile) => profile.gifskiQuality < 90));
+  assert.ok(profiles.some((profile) => profile.maxColors < 256));
+  assert.ok(profiles.some((profile) => profile.dithering === 'none'));
+  assert.ok(profiles.some((profile) => profile.outputFps < 24));
+  assert.equal(new Set(profiles.map((profile) => JSON.stringify(profile))).size, profiles.length);
+});
+
+test('delivery candidate selection prefers the earliest in-budget candidate and otherwise the smallest output', () => {
+  const candidates = [
+    { profile: { outputFps: 24 }, validation: { bytes: 210_000 } },
+    { profile: { outputFps: 15 }, validation: { bytes: 149_000 } },
+    { profile: { outputFps: 12 }, validation: { bytes: 120_000 } },
+  ];
+
+  assert.equal(selectDeliveryCandidate(candidates, 150_000), candidates[1]);
+  assert.equal(selectDeliveryCandidate(candidates, 100_000), candidates[2]);
 });
 
 test('adaptive quality metrics select the smallest visually equivalent candidate', () => {
@@ -366,7 +429,7 @@ test('result warnings report safety adjustments without changing selected contro
   assert.equal(effectiveGifFps({ frames: 1, durationMs: 0 }), null);
 });
 
-test('reports require schema v4', () => {
+test('reports accept the current schema and retain v4 validation compatibility', () => {
   const report = {
     schemaVersion: 4,
     inputPath: '/tmp/input.html',
@@ -377,6 +440,8 @@ test('reports require schema v4', () => {
   };
 
   assert.equal(validateReport(report), report);
+  const v5Report = { ...report, schemaVersion: 5 };
+  assert.equal(validateReport(v5Report), v5Report);
   assert.throws(() => validateReport({ ...report, schemaVersion: 2 }), /schema version/);
 });
 

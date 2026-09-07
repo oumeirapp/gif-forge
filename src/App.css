@@ -138,6 +138,7 @@
 .result-detail-cell { @apply max-w-72 whitespace-normal; }
 .muted-cell { @apply block truncate text-muted-foreground; }
 .result-metadata { @apply mt-1 block text-xs leading-snug text-muted-foreground; }
+.result-type { @apply mt-1 inline-block rounded-sm bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase; }
 .result-warning { @apply mt-1 block text-xs leading-snug text-foreground; }
 .result-error { @apply max-w-72 whitespace-normal text-xs leading-snug text-destructive; }
 .numeric-cell { @apply font-mono text-xs tabular-nums; }

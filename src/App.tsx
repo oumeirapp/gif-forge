@@ -18,6 +18,8 @@ const DEFAULT_CONFIG: ConversionFormConfig = {
   gifskiQuality: 80,
   maxDurationSeconds: 30,
   loopMode: "auto",
+  outputMode: "both",
+  maxBytes: 150_000,
 }
 
 function App() {
@@ -34,11 +36,13 @@ function App() {
       && config.gifskiQuality >= 1
       && config.gifskiQuality <= 100,
     maxDurationSeconds: config.maxDurationSeconds >= 0.1 && config.maxDurationSeconds <= 60,
+    maxBytes: Number.isInteger(config.maxBytes) && config.maxBytes >= 1 && config.maxBytes <= 10_000_000,
   }
   const validConfig = configValidity.outputFps
     && configValidity.maxColors
     && configValidity.gifskiQuality
     && configValidity.maxDurationSeconds
+    && configValidity.maxBytes
   const ready = inputFolders.length > 0 && Boolean(outputFolder) && validConfig
 
   let readinessTitle = "Batch ready"
@@ -95,7 +99,7 @@ function App() {
           <Alert variant="destructive">
             <AlertCircle />
             <AlertTitle>Settings need attention</AlertTitle>
-            <AlertDescription>Choose a supported FPS and palette, use a Gifski quality from 1–100, and use a duration from 0.1–60 seconds.</AlertDescription>
+            <AlertDescription>Choose a supported FPS and palette, use a Gifski quality from 1–100, and enter valid duration and delivery-size settings.</AlertDescription>
           </Alert>
         ) : null}
 

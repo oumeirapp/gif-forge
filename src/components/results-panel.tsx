@@ -35,6 +35,7 @@ function resultMetadata(result: ResultEvent) {
   if (ditheringLabel) details.push(ditheringLabel)
   if (compressionLabel) details.push(compressionLabel)
   if (result.durationMs !== undefined) details.push(formatDuration(result.durationMs))
+  if (result.targetBytes !== undefined) details.push(`${result.metTarget ? "within" : "over"} ${formatBytes(result.targetBytes)} target`)
   return details.join(" · ")
 }
 
@@ -59,6 +60,14 @@ function errorSourceName(error: ErrorEvent) {
 }
 
 function ResultStatus({ result }: { result: ResultEvent }) {
+  if (result.metTarget === false) {
+    return <Badge variant="outline" className="warning-badge"><TriangleAlert data-icon="inline-start" />Over target</Badge>
+  }
+
+  if (result.metTarget === true) {
+    return <Badge variant="outline" className="success-badge"><CheckCircle2 data-icon="inline-start" />Within target</Badge>
+  }
+
   if (result.adjusted || (result.warnings?.length ?? 0) > 0) {
     return <Badge variant="outline" className="warning-badge"><TriangleAlert data-icon="inline-start" />Adjusted</Badge>
   }
@@ -107,6 +116,7 @@ export function ResultsPanel({ job }: { job: JobState }) {
                     <TableCell><span className="file-cell"><FileImage aria-hidden="true" />{fileName(result.input ?? result.inputPath)}</span></TableCell>
                     <TableCell className="result-detail-cell" title={result.output ?? result.outputPath}>
                       <span className="muted-cell">{fileName(result.output ?? result.outputPath)}</span>
+                      <span className="result-type">{result.outputType === "delivery" ? "Delivery optimized" : "Forge configured"}</span>
                       <span className="result-metadata">{resultMetadata(result)}</span>
                       {warningText ? <span className="result-warning">{warningText}</span> : null}
                     </TableCell>

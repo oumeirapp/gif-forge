@@ -6,11 +6,11 @@ const path = require('node:path');
 const { startFileServer } = require('./server.cjs');
 const { captureFrames } = require('./capture.cjs');
 const { coalesceFrames, resolveInputPath, uniqueOutputPaths, gifDurationToleranceMs } = require('./helpers.cjs');
-const { encodeGif } = require('./encode.cjs');
+const { deliveryProfiles, encodeGif, selectDeliveryCandidate } = require('./encode.cjs');
 const { validateGif } = require('./gif.cjs');
 
 function validateReport(report) {
-  if (!report || report.schemaVersion !== 4) throw new Error('Generated report has an invalid schema version.');
+  if (!report || ![4, 5].includes(report.schemaVersion)) throw new Error('Generated report has an invalid schema version.');
   if (!report.inputPath || !report.outputPath || !report.capture || !report.encoding || !report.validation) {
     throw new Error('Generated report is incomplete.');
   }
@@ -54,7 +54,7 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
   if (!['.html', '.htm'].includes(path.extname(entryPath).toLowerCase())) throw new Error(`Input must be an HTML file: ${inputPath}`);
 
   await fsp.mkdir(outputDirectory, { recursive: true });
-  const outputPaths = uniqueOutputPaths(inputPath, outputDirectory);
+  const outputPaths = uniqueOutputPaths(inputPath, outputDirectory, config.maxBytes);
   const server = await startFileServer(entryPath);
 
   try {
@@ -73,87 +73,128 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
       gifskiQuality: config.gifskiQuality,
       loopMode: capture.outputLoopMode,
     };
-    const encoded = await encodeGif({
-      frames,
-      width: capture.width,
-      height: capture.height,
-      durationMs: capture.durationSeconds * 1_000,
-      config: encodingConfig,
-      onProgress: emitProgress,
-    });
-
-    await fsp.writeFile(outputPaths.gifPath, encoded.gifBuffer, { flag: 'wx' });
     const expectedDurationMs = isStillImage ? undefined : capture.durationSeconds * 1_000;
-    const gifValidation = validateGif(outputPaths.gifPath, {
-      width: capture.width,
-      height: capture.height,
-      loopMode: capture.outputLoopMode,
-      durationMs: expectedDurationMs,
-      durationToleranceMs: gifDurationToleranceMs(encoded.profile.fps),
-    });
-    const validation = {
-      ...gifValidation,
-      effectiveFps: effectiveGifFps(gifValidation),
-    };
-    const warnings = buildWarnings(config, capture, encoded);
-    const report = validateReport({
-      schemaVersion: 4,
-      createdAt: new Date().toISOString(),
-      inputPath,
-      entryPath,
-      outputPath: outputPaths.gifPath,
-      settings: {
-        outputFps: config.outputFps,
-        maxColors: config.maxColors,
-        dithering: config.dithering,
-        gifskiQuality: config.gifskiQuality,
-        maxDurationSeconds: config.maxDurationSeconds,
-        requestedLoopMode: config.loopMode,
-      },
-      capture: {
+    const outputs = [];
+
+    async function writeOutput(kind, paths, encoded, targetBytes) {
+      await fsp.writeFile(paths.gifPath, encoded.gifBuffer, { flag: 'wx' });
+      const gifValidation = validateGif(paths.gifPath, {
         width: capture.width,
         height: capture.height,
-        requestedFps: config.captureFps,
-        effectiveFps: roundFps(capture.effectiveCaptureFps),
-        frameRateLimited: capture.frameRateLimited,
-        durationSeconds: capture.durationSeconds,
-        sourceFrames: capture.frames.length,
-        uniqueRuns: frames.length,
-        timing: capture.discovery,
-      },
-      encoding: {
-        requestedFps: config.outputFps,
-        appliedFps: isStillImage ? null : encoded.profile.fps,
-        maxColors: config.maxColors,
-        requestedDithering: config.dithering,
-        requestedGifskiQuality: config.gifskiQuality,
-        paletteMode: 'stable-global',
         loopMode: capture.outputLoopMode,
-        selectedCandidate: {
-          id: encoded.selectedCandidate.id,
-          label: encoded.selectedCandidate.label,
-          dither: encoded.selectedCandidate.dither,
-          bayerScale: encoded.selectedCandidate.bayerScale,
-          prefilter: encoded.selectedCandidate.prefilter,
+        durationMs: expectedDurationMs,
+        durationToleranceMs: gifDurationToleranceMs(encoded.profile.fps),
+      });
+      const validation = { ...gifValidation, effectiveFps: effectiveGifFps(gifValidation) };
+      const warnings = buildWarnings({ ...config, outputFps: encoded.profile.fps }, capture, encoded);
+      const metTarget = targetBytes === undefined ? undefined : validation.bytes <= targetBytes;
+      if (targetBytes !== undefined) {
+        warnings.push(`Delivery settings selected: ${encoded.profile.fps} FPS, ${encoded.profile.maxColors} colors, ${encoded.selectedCandidate.label}, Gifski ${encoded.compression.quality}% quality.`);
+        warnings.push(metTarget
+          ? `Delivery target met: ${validation.bytes} bytes is within the ${targetBytes}-byte limit.`
+          : `Delivery target not met: smallest candidate was ${validation.bytes} bytes, above the ${targetBytes}-byte limit.`);
+      }
+      const report = validateReport({
+        schemaVersion: 5,
+        createdAt: new Date().toISOString(),
+        inputPath,
+        entryPath,
+        outputPath: paths.gifPath,
+        outputType: kind,
+        delivery: targetBytes === undefined ? undefined : {
+          targetBytes,
+          metTarget,
+          candidatesTested: encoded.deliveryCandidates ?? 1,
+          candidates: encoded.deliveryAttemptSummary,
         },
-        evaluation: encoded.evaluation,
-        attempts: encoded.attempts,
-        compression: encoded.compression,
-      },
-      validation,
-      warnings,
-    });
+        settings: {
+          outputFps: encoded.profile.fps,
+          maxColors: encoded.profile.maxColors,
+          dithering: encoded.selectedCandidate.id,
+          gifskiQuality: encoded.compression.quality,
+          maxDurationSeconds: config.maxDurationSeconds,
+          requestedLoopMode: config.loopMode,
+        },
+        capture: {
+          width: capture.width,
+          height: capture.height,
+          requestedFps: config.captureFps,
+          effectiveFps: roundFps(capture.effectiveCaptureFps),
+          frameRateLimited: capture.frameRateLimited,
+          durationSeconds: capture.durationSeconds,
+          sourceFrames: capture.frames.length,
+          uniqueRuns: frames.length,
+          timing: capture.discovery,
+        },
+        encoding: {
+          requestedFps: encoded.profile.fps,
+          appliedFps: isStillImage ? null : encoded.profile.fps,
+          maxColors: encoded.profile.maxColors,
+          requestedDithering: encoded.selectedCandidate.id,
+          requestedGifskiQuality: encoded.compression.quality,
+          paletteMode: 'stable-global',
+          loopMode: capture.outputLoopMode,
+          selectedCandidate: {
+            id: encoded.selectedCandidate.id,
+            label: encoded.selectedCandidate.label,
+            dither: encoded.selectedCandidate.dither,
+            bayerScale: encoded.selectedCandidate.bayerScale,
+            prefilter: encoded.selectedCandidate.prefilter,
+          },
+          evaluation: encoded.evaluation,
+          attempts: encoded.attempts,
+          compression: encoded.compression,
+        },
+        validation,
+        warnings,
+      });
 
-    await fsp.writeFile(outputPaths.reportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
-    validateReport(JSON.parse(await fsp.readFile(outputPaths.reportPath, 'utf8')));
-    emitProgress({ stage: 'validate', current: 1, total: 1, bytes: validation.bytes });
-    return { ...outputPaths, report };
+      await fsp.writeFile(paths.reportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
+      validateReport(JSON.parse(await fsp.readFile(paths.reportPath, 'utf8')));
+      emitProgress({ stage: 'validate', current: outputs.length + 1, total: config.outputMode === 'both' ? 2 : 1, bytes: validation.bytes, outputType: kind });
+      outputs.push({ ...paths, report });
+    }
+
+    if (config.outputMode !== 'size-limited') {
+      const encoded = await encodeGif({ frames, width: capture.width, height: capture.height, durationMs: expectedDurationMs ?? 0, config: encodingConfig, onProgress: emitProgress });
+      await writeOutput('forge', outputPaths.forge, encoded);
+    }
+
+    if (config.outputMode !== 'forge') {
+      const candidates = [];
+      const profiles = deliveryProfiles(encodingConfig);
+      for (let index = 0; index < profiles.length; index += 1) {
+        const encoded = await encodeGif({
+          frames,
+          width: capture.width,
+          height: capture.height,
+          durationMs: expectedDurationMs ?? 0,
+          config: profiles[index],
+          onProgress: (progress) => emitProgress({ ...progress, stage: 'optimize', current: index + 1, total: profiles.length }),
+        });
+        candidates.push(encoded);
+      }
+      const selected = selectDeliveryCandidate(candidates, config.maxBytes);
+      selected.deliveryCandidates = candidates.length;
+      selected.deliveryAttemptSummary = candidates.map((candidate) => ({
+        bytes: candidate.validation.bytes,
+        outputFps: candidate.profile.fps,
+        maxColors: candidate.profile.maxColors,
+        dithering: candidate.selectedCandidate.id,
+        gifskiQuality: candidate.compression.quality,
+      }));
+      await writeOutput('delivery', outputPaths.delivery, selected, config.maxBytes);
+    }
+
+    return { outputs };
   } catch (error) {
-    for (const outputPath of [outputPaths.gifPath, outputPaths.reportPath]) {
-      try {
-        if (fs.existsSync(outputPath)) await fsp.unlink(outputPath);
-      } catch {
-        // Preserve the conversion error that caused cleanup.
+    for (const group of [outputPaths.forge, outputPaths.delivery]) {
+      for (const outputPath of [group.gifPath, group.reportPath]) {
+        try {
+          if (fs.existsSync(outputPath)) await fsp.unlink(outputPath);
+        } catch {
+          // Preserve the conversion error that caused cleanup.
+        }
       }
     }
     throw error;
