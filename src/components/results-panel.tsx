@@ -35,6 +35,7 @@ function resultMetadata(result: ResultEvent) {
   if (ditheringLabel) details.push(ditheringLabel)
   if (compressionLabel) details.push(compressionLabel)
   if (result.durationMs !== undefined) details.push(formatDuration(result.durationMs))
+  if (result.frameCount !== undefined) details.push(`${result.frameCount} source frames`)
   if (result.targetBytes !== undefined) details.push(`${result.metTarget ? "within" : "over"} ${formatBytes(result.targetBytes)} target`)
   return details.join(" · ")
 }
@@ -116,7 +117,12 @@ export function ResultsPanel({ job }: { job: JobState }) {
                     <TableCell><span className="file-cell"><FileImage aria-hidden="true" />{fileName(result.input ?? result.inputPath)}</span></TableCell>
                     <TableCell className="result-detail-cell" title={result.output ?? result.outputPath}>
                       <span className="muted-cell">{fileName(result.output ?? result.outputPath)}</span>
-                      <span className="result-type">{result.outputType === "delivery" ? "Delivery optimized" : "Forge configured"}</span>
+                      <span className="result-type">{
+                        result.outputType === "delivery" ? "Delivery optimized"
+                          : result.outputType === "png-frames" ? "PNG frame ZIP"
+                            : result.outputType === "jpeg-frames" ? "JPEG frame ZIP"
+                              : "Forge configured"
+                      }</span>
                       <span className="result-metadata">{resultMetadata(result)}</span>
                       {warningText ? <span className="result-warning">{warningText}</span> : null}
                     </TableCell>

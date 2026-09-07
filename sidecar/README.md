@@ -34,6 +34,8 @@ The same JSON can be sent as one line on stdin. The desktop app uses stdin so la
 
 Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `outputFps` accepts 4, 12, 15, or 24 (default 15); `maxColors` accepts 64, 128, 192, or 256 (default 256). The sidecar captures at 24 FPS, then resamples at the selected output rate. `outputMode` accepts `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes and defaults to 150000. Legacy quality presets, editable capture-FPS fields, and Gifsicle modes are rejected.
 
+`frameExport` accepts `none`, `png`, `jpeg`, or `both` and defaults to `none`. Each selected format produces a ZIP archive containing every captured source frame before GIF coalescing and a `manifest.json` timing map. JPEG uses `jpegQuality` (1–100, default 90) and flattens transparency using `jpegBackground` (a six-digit `#rrggbb` color, default `#ffffff`).
+
 `dithering` accepts `adaptive`, `none`, `bayer-5`, `bayer-4`, or `gradfun-bayer-5`. Adaptive compares all four concrete methods using VMAF/CAMBI and chooses the smallest candidate within 0.25 quality-score points of the best result. Without those metrics, Adaptive uses Light Bayer and records a warning. A manual choice encodes only that method. Every method uses a stable global palette generated from full-frame statistics.
 
 `gifskiQuality` accepts an integer from 1–100 and defaults to 80. It is a quality score rather than a file-size percentage: lower values permit stronger lossy compression, while 100 disables Gifski's lossy LZW pass. The bundled worker keeps Gifski's palette and motion quality at 100 so this control does not silently change the selected FPS, palette ceiling, or upstream dithering mode.
@@ -43,7 +45,7 @@ Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `
 Standard output is newline-delimited JSON only:
 
 - `progress`: load, capture, coalesce, encode, quality analysis, and validation status
-- `result`: GIF/report paths, output type, requested and effective FPS, palette, dithering, compression, exact byte count, and warnings. Delivery results also expose the byte target, whether it was met, and candidates tested.
+- `result`: GIF/report paths or frame-archive paths, output type, requested and effective FPS, palette, dithering, compression, exact byte count, and warnings. Delivery results also expose the byte target, whether it was met, and candidates tested; frame archives expose their source-frame count.
 - `error`: a request-level or input-level failure
 - `complete`: total/succeeded/failed counts
 

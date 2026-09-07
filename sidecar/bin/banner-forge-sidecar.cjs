@@ -51,6 +51,18 @@ async function main(argv) {
       });
       summary.succeeded += 1;
       for (const output of converted.outputs) {
+        if (!output.report) {
+          emit({
+            type: 'result',
+            inputPath,
+            outputPath: output.outputPath,
+            outputType: output.outputType,
+            bytes: output.bytes,
+            frameCount: output.frameCount,
+            warnings: output.warnings,
+          });
+          continue;
+        }
         const { report } = output;
         emit({
           type: 'result',

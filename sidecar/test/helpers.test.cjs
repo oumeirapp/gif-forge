@@ -11,6 +11,7 @@ const {
   PALETTE_OPTIONS,
   DITHERING_OPTIONS: CONFIG_DITHERING_OPTIONS,
   OUTPUT_MODES,
+  FRAME_EXPORT_MODES,
   normalizeConfig,
   validateRequest,
   resolveInputPath,
@@ -20,6 +21,7 @@ const {
   gifLoopArgument,
   gifDurationToleranceMs,
 } = require('../lib/helpers.cjs');
+const { buildFrameManifest, exportFrameArchive, frameExportFormats, normalizeHexColor, zipStore } = require('../lib/frames.cjs');
 const { distributeFrameDelays, inspectGif, validateGif } = require('../lib/gif.cjs');
 const { isWithin } = require('../lib/server.cjs');
 const {
@@ -79,6 +81,9 @@ test('configuration defaults are explicit and every dropdown value is accepted',
     loopMode: 'auto',
     outputMode: 'forge',
     maxBytes: 150_000,
+    frameExport: 'none',
+    jpegQuality: 90,
+    jpegBackground: '#ffffff',
   });
   assert.equal(CAPTURE_FPS, 24);
   assert.deepEqual(OUTPUT_FPS_OPTIONS, [4, 12, 15, 24]);
@@ -101,6 +106,9 @@ test('configuration defaults are explicit and every dropdown value is accepted',
     loopMode: 'once',
     outputMode: 'forge',
     maxBytes: 150_000,
+    frameExport: 'none',
+    jpegQuality: 90,
+    jpegBackground: '#ffffff',
   });
   assert.throws(() => normalizeConfig({ outputFps: 8 }), /outputFps/);
   assert.throws(() => normalizeConfig({ maxColors: 48 }), /maxColors/);
@@ -118,6 +126,11 @@ test('configuration defaults are explicit and every dropdown value is accepted',
   assert.throws(() => normalizeConfig({ outputMode: 'archive' }), /outputMode/);
   assert.throws(() => normalizeConfig({ maxBytes: 0 }), /maxBytes/);
   assert.throws(() => normalizeConfig({ maxBytes: 150_000.5 }), /maxBytes/);
+  assert.deepEqual(FRAME_EXPORT_MODES, ['none', 'png', 'jpeg', 'both']);
+  assert.deepEqual(normalizeConfig({ frameExport: 'both', jpegQuality: 75, jpegBackground: '#1a2b3c' }).frameExport, 'both');
+  assert.throws(() => normalizeConfig({ frameExport: 'tiff' }), /frameExport/);
+  assert.throws(() => normalizeConfig({ jpegQuality: 0 }), /jpegQuality/);
+  assert.throws(() => normalizeConfig({ jpegBackground: 'blue' }), /jpegBackground/);
 });
 
 test('protocol v4 request validation resolves paths and rejects legacy requests', () => {
@@ -259,7 +272,59 @@ test('output paths reserve Forge and delivery names without overwriting existing
       gifPath: '/tmp/output/My-banner-150kb.gif',
       reportPath: '/tmp/output/My-banner-150kb.report.json',
     },
+    frames: {
+      pngZipPath: '/tmp/output/My-banner-png-frames.zip',
+      jpegZipPath: '/tmp/output/My-banner-jpeg-frames.zip',
+    },
   });
+});
+
+test('frame exports create ordered manifests and safe ZIP archives', () => {
+  assert.deepEqual(frameExportFormats('both'), ['png', 'jpeg']);
+  assert.deepEqual(frameExportFormats('none'), []);
+  assert.equal(normalizeHexColor('#1A2b3C'), '0x1A2B3C');
+  assert.throws(() => normalizeHexColor('#fff'), /six-digit/);
+
+  const manifest = buildFrameManifest({
+    format: 'png',
+    frameCount: 2,
+    frameDurationMs: 41.666667,
+    width: 300,
+    height: 250,
+    effectiveCaptureFps: 24,
+  });
+  assert.equal(manifest.frames[0].file, 'frame-000001.png');
+  assert.equal(manifest.frames[1].timestampMs, 41.667);
+  const archive = zipStore([
+    { name: 'frame-000001.png', data: Buffer.from('frame') },
+    { name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest)) },
+  ]);
+  assert.equal(archive.readUInt32LE(0), 0x04034b50);
+  assert.match(archive.toString('utf8'), /manifest\.json/);
+});
+
+test('JPEG frame archives flatten transparent source frames onto the selected matte', async (context) => {
+  const ffmpeg = resolveExecutable('ffmpeg', ['BANNER_FORGE_FFMPEG', 'FFMPEG_PATH']);
+  if (!await toolAvailable(ffmpeg)) {
+    context.skip('FFmpeg is not installed.');
+    return;
+  }
+  const transparentPng = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const exported = await exportFrameArchive({
+    frames: [transparentPng],
+    format: 'jpeg',
+    frameDurationMs: 100,
+    width: 1,
+    height: 1,
+    effectiveCaptureFps: 10,
+    jpegQuality: 90,
+    jpegBackground: '#ff0000',
+  });
+  assert.equal(exported.manifest.jpeg.background, '#ff0000');
+  assert.match(exported.archive.toString('utf8'), /frame-000001\.jpg/);
 });
 
 test('identical adjacent PNGs are coalesced with exact byte comparison', () => {

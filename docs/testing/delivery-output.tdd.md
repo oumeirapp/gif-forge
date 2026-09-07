@@ -34,3 +34,18 @@ All commands passed. `npm run check` reached the packaged-sidecar step but could
 ## Known gaps
 
 No coverage script or browser E2E runner is configured in this repository. The new contract and selection policy are unit-tested, but a packaged-app conversion that writes both outputs still needs to be exercised in an environment that permits loopback listeners and package-cache writes.
+
+## Frame-export extension
+
+The subsequent frame-export feature uses the same test target. It guarantees that PNG/JPEG export modes and JPEG quality/matte inputs are validated, source-frame manifests are ordered and timestamped, ZIP entries use safe relative names, and JPEG archives flatten frames with FFmpeg using the selected matte color.
+
+Validation rerun:
+
+```bash
+npm --prefix sidecar test
+npm run build
+cargo check --manifest-path src-tauri/Cargo.toml
+git diff --check
+```
+
+All commands passed. The sidecar suite includes the JPEG archive integration test when FFmpeg is available.

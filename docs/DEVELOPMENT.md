@@ -68,6 +68,11 @@ The request must contain `protocolVersion: 4`, a non-empty `inputPaths` array, a
 | `loopMode` | `auto`, `once`, `infinite`/`forever`, or a non-negative repeat count | `auto` |
 | `outputMode` | `forge`, `size-limited`, `both` | `forge` |
 | `maxBytes` | whole-number delivery target in bytes | `150000` |
+| `frameExport` | `none`, `png`, `jpeg`, `both` | `none` |
+| `jpegQuality` | integer `1`–`100` | `90` |
+| `jpegBackground` | six-digit `#rrggbb` matte color | `#ffffff` |
+
+Frame archives use the raw captured sequence before adjacent-frame coalescing. Their ZIP-contained `manifest.json` is the timing authority for downstream assembly; JPEG frames have transparency flattened onto the selected matte color.
 
 The sidecar emits JSON objects one per line. Consumers should tolerate progress events arriving between any two result events, preserve input-level errors, and use the `complete` event for batch totals. Exit codes are `0` for full success, `2` for partial/input failures, and `1` for invalid commands or requests.
 

@@ -7,6 +7,7 @@ const { startFileServer } = require('./server.cjs');
 const { captureFrames } = require('./capture.cjs');
 const { coalesceFrames, resolveInputPath, uniqueOutputPaths, gifDurationToleranceMs } = require('./helpers.cjs');
 const { deliveryProfiles, encodeGif, selectDeliveryCandidate } = require('./encode.cjs');
+const { exportFrameArchive, frameExportFormats } = require('./frames.cjs');
 const { validateGif } = require('./gif.cjs');
 
 function validateReport(report) {
@@ -75,6 +76,35 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
     };
     const expectedDurationMs = isStillImage ? undefined : capture.durationSeconds * 1_000;
     const outputs = [];
+
+    async function writeFrameOutput(format, outputPath) {
+      const exported = await exportFrameArchive({
+        frames: capture.frames,
+        format,
+        frameDurationMs: capture.frameDurationMs,
+        width: capture.width,
+        height: capture.height,
+        effectiveCaptureFps: roundFps(capture.effectiveCaptureFps),
+        jpegQuality: config.jpegQuality,
+        jpegBackground: config.jpegBackground,
+      });
+      await fsp.writeFile(outputPath, exported.archive, { flag: 'wx' });
+      outputs.push({
+        outputPath,
+        outputType: `${format}-frames`,
+        bytes: exported.archive.length,
+        frameCount: exported.manifest.frameCount,
+        warnings: [],
+      });
+    }
+
+    const requestedFrameExports = frameExportFormats(config.frameExport);
+    for (let index = 0; index < requestedFrameExports.length; index += 1) {
+      const format = requestedFrameExports[index];
+      emitProgress({ stage: 'frames', current: index, total: requestedFrameExports.length, format });
+      await writeFrameOutput(format, format === 'png' ? outputPaths.frames.pngZipPath : outputPaths.frames.jpegZipPath);
+      emitProgress({ stage: 'frames', current: index + 1, total: requestedFrameExports.length, format });
+    }
 
     async function writeOutput(kind, paths, encoded, targetBytes) {
       await fsp.writeFile(paths.gifPath, encoded.gifBuffer, { flag: 'wx' });
@@ -188,13 +218,19 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
 
     return { outputs };
   } catch (error) {
-    for (const group of [outputPaths.forge, outputPaths.delivery]) {
-      for (const outputPath of [group.gifPath, group.reportPath]) {
-        try {
-          if (fs.existsSync(outputPath)) await fsp.unlink(outputPath);
-        } catch {
-          // Preserve the conversion error that caused cleanup.
-        }
+    const outputFiles = [
+      outputPaths.forge.gifPath,
+      outputPaths.forge.reportPath,
+      outputPaths.delivery.gifPath,
+      outputPaths.delivery.reportPath,
+      outputPaths.frames.pngZipPath,
+      outputPaths.frames.jpegZipPath,
+    ];
+    for (const outputPath of outputFiles) {
+      try {
+        if (fs.existsSync(outputPath)) await fsp.unlink(outputPath);
+      } catch {
+        // Preserve the conversion error that caused cleanup.
       }
     }
     throw error;

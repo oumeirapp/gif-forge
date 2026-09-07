@@ -129,6 +129,8 @@
 .unit-input > svg { @apply absolute left-2 size-3.5 text-muted-foreground; }
 .unit-input input { @apply pr-14 pl-7 font-mono tabular-nums; }
 .unit-input span { @apply absolute right-2 text-[0.65rem] text-muted-foreground uppercase; }
+.color-input { @apply flex h-8 items-center gap-2 rounded-lg border border-input bg-transparent px-2 text-xs font-mono; }
+.color-input input { @apply h-5 w-7 cursor-pointer border-0 bg-transparent p-0; }
 .loop-field { @apply sm:col-span-2; }
 
 .results-content { @apply flex flex-col gap-3 px-0; }

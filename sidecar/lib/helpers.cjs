@@ -10,6 +10,7 @@ const OUTPUT_FPS_OPTIONS = Object.freeze([4, 12, 15, 24]);
 const PALETTE_OPTIONS = Object.freeze([64, 128, 192, 256]);
 const DITHERING_OPTIONS = Object.freeze(['adaptive', 'none', 'bayer-5', 'bayer-4', 'gradfun-bayer-5']);
 const OUTPUT_MODES = Object.freeze(['forge', 'size-limited', 'both']);
+const FRAME_EXPORT_MODES = Object.freeze(['none', 'png', 'jpeg', 'both']);
 
 const DEFAULTS = Object.freeze({
   outputFps: 15,
@@ -21,6 +22,9 @@ const DEFAULTS = Object.freeze({
   loopMode: 'auto',
   outputMode: 'forge',
   maxBytes: 150_000,
+  frameExport: 'none',
+  jpegQuality: 90,
+  jpegBackground: '#ffffff',
 });
 
 function normalizeConfig(config = {}) {
@@ -72,6 +76,19 @@ function normalizeConfig(config = {}) {
     throw new Error('maxBytes must be a whole number from 1 through 10000000.');
   }
 
+  const frameExport = config.frameExport ?? DEFAULTS.frameExport;
+  if (!FRAME_EXPORT_MODES.includes(frameExport)) {
+    throw new Error(`frameExport must be one of: ${FRAME_EXPORT_MODES.join(', ')}.`);
+  }
+  const jpegQuality = config.jpegQuality ?? DEFAULTS.jpegQuality;
+  if (!Number.isInteger(jpegQuality) || jpegQuality < 1 || jpegQuality > 100) {
+    throw new Error('jpegQuality must be an integer from 1 through 100.');
+  }
+  const jpegBackground = config.jpegBackground ?? DEFAULTS.jpegBackground;
+  if (typeof jpegBackground !== 'string' || !/^#[0-9a-f]{6}$/i.test(jpegBackground)) {
+    throw new Error('jpegBackground must be a six-digit hexadecimal color such as #ffffff.');
+  }
+
   return {
     outputFps,
     maxColors,
@@ -82,6 +99,9 @@ function normalizeConfig(config = {}) {
     loopMode: normalizeLoopMode(config.loopMode),
     outputMode,
     maxBytes,
+    frameExport,
+    jpegQuality,
+    jpegBackground: jpegBackground.toLowerCase(),
   };
 }
 
@@ -139,8 +159,12 @@ function uniqueOutputPaths(inputPath, outputDirectory, maxBytes = DEFAULTS.maxBy
       gifPath: path.join(outputDirectory, `${outputStem}-${deliveryLabel}.gif`),
       reportPath: path.join(outputDirectory, `${outputStem}-${deliveryLabel}.report.json`),
     };
-    if (![forge.gifPath, forge.reportPath, delivery.gifPath, delivery.reportPath].some((outputPath) => fs.existsSync(outputPath))) {
-      return { forge, delivery };
+    const frames = {
+      pngZipPath: path.join(outputDirectory, `${outputStem}-png-frames.zip`),
+      jpegZipPath: path.join(outputDirectory, `${outputStem}-jpeg-frames.zip`),
+    };
+    if (![forge.gifPath, forge.reportPath, delivery.gifPath, delivery.reportPath, frames.pngZipPath, frames.jpegZipPath].some((outputPath) => fs.existsSync(outputPath))) {
+      return { forge, delivery, frames };
     }
     suffix = `-${++index}`;
   }
@@ -180,6 +204,7 @@ module.exports = {
   PALETTE_OPTIONS,
   DITHERING_OPTIONS,
   OUTPUT_MODES,
+  FRAME_EXPORT_MODES,
   DEFAULTS,
   normalizeConfig,
   normalizeLoopMode,

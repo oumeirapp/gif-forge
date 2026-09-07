@@ -19,6 +19,7 @@ import type {
   ConversionFormConfig,
   ConversionFormConfigValidity,
   DitheringMode,
+  FrameExportMode,
   LoopMode,
   OutputMode,
   OutputFps,
@@ -45,6 +46,12 @@ const OUTPUT_MODE_SELECT_ITEMS = [
   { value: "size-limited", label: "Size-limited only" },
   { value: "both", label: "Both outputs" },
 ]
+const FRAME_EXPORT_SELECT_ITEMS = [
+  { value: "none", label: "No frame export" },
+  { value: "png", label: "PNG frames (ZIP)" },
+  { value: "jpeg", label: "JPEG frames (ZIP)" },
+  { value: "both", label: "PNG + JPEG frames" },
+]
 
 export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPanelProps) {
   const selectedFps = findOption(FPS_OPTIONS, config.outputFps)
@@ -59,6 +66,9 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
   const maxBytesDescriptionIds = validity.maxBytes
     ? "max-bytes-description"
     : "max-bytes-description max-bytes-error"
+  const jpegQualityDescriptionIds = validity.jpegQuality
+    ? "jpeg-quality-description"
+    : "jpeg-quality-description jpeg-quality-error"
 
   function updateDuration(value: string) {
     const numericValue = value.trim() === "" ? 0 : Number(value)
@@ -79,6 +89,11 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
   function updateMaxBytes(value: string) {
     const kilobytes = value.trim() === "" ? 0 : Number(value)
     onChange({ ...config, maxBytes: Number.isFinite(kilobytes) ? Math.round(kilobytes * 1_000) : 0 })
+  }
+
+  function updateJpegQuality(value: string) {
+    const numericValue = value.trim() === "" ? 0 : Number(value)
+    onChange({ ...config, jpegQuality: Number.isFinite(numericValue) ? numericValue : 0 })
   }
 
   return (
@@ -278,6 +293,70 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
               <FieldDescription id="max-bytes-description">Uses decimal KB. The delivery output keeps dimensions fixed and searches for the best fit.</FieldDescription>
               {!validity.maxBytes ? <FieldError id="max-bytes-error">Enter a whole number from 1–10,000 KB.</FieldError> : null}
             </Field>
+          ) : null}
+
+          <Field className="config-wide" data-disabled={disabled || undefined}>
+            <FieldLabel htmlFor="frame-export">Frame export</FieldLabel>
+            <Select
+              items={FRAME_EXPORT_SELECT_ITEMS}
+              value={config.frameExport}
+              disabled={disabled}
+              onValueChange={(value) => onChange({ ...config, frameExport: value as FrameExportMode })}
+            >
+              <SelectTrigger id="frame-export" className="config-select" aria-describedby="frame-export-description">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {FRAME_EXPORT_SELECT_ITEMS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FieldDescription id="frame-export-description">Exports every captured source frame before GIF coalescing, with a timing manifest in each ZIP.</FieldDescription>
+          </Field>
+
+          {config.frameExport === "jpeg" || config.frameExport === "both" ? (
+            <>
+              <Field data-invalid={!validity.jpegQuality || undefined} data-disabled={disabled || undefined}>
+                <FieldLabel htmlFor="jpeg-quality">JPEG quality</FieldLabel>
+                <div className="unit-input">
+                  <Input
+                    id="jpeg-quality"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    inputMode="numeric"
+                    disabled={disabled}
+                    value={config.jpegQuality}
+                    aria-invalid={!validity.jpegQuality}
+                    aria-describedby={jpegQualityDescriptionIds}
+                    onChange={(event) => updateJpegQuality(event.target.value)}
+                  />
+                  <span aria-hidden="true">%</span>
+                </div>
+                <FieldDescription id="jpeg-quality-description">Higher values retain more detail and produce larger JPEG frames.</FieldDescription>
+                {!validity.jpegQuality ? <FieldError id="jpeg-quality-error">Enter a whole number from 1–100.</FieldError> : null}
+              </Field>
+
+              <Field data-invalid={!validity.jpegBackground || undefined} data-disabled={disabled || undefined}>
+                <FieldLabel htmlFor="jpeg-background">JPEG matte color</FieldLabel>
+                <div className="color-input">
+                  <Input
+                    id="jpeg-background"
+                    type="color"
+                    disabled={disabled}
+                    value={config.jpegBackground}
+                    aria-invalid={!validity.jpegBackground}
+                    onChange={(event) => onChange({ ...config, jpegBackground: event.target.value })}
+                  />
+                  <span>{config.jpegBackground.toUpperCase()}</span>
+                </div>
+                <FieldDescription>JPEG does not support transparency, so transparent pixels are flattened onto this color.</FieldDescription>
+              </Field>
+            </>
           ) : null}
         </FieldGroup>
       </CardContent>

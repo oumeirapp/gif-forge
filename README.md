@@ -38,6 +38,7 @@ For a contributor-oriented code map, runtime walkthrough, protocol contract, and
 - Offers Adaptive, no dithering, Light Bayer, Bayer, and mild deband plus Light Bayer. Adaptive compares every method with VMAF/CAMBI and chooses the smallest candidate within 0.25 points of the best score.
 - Applies bundled Gifski compression with a user-selected quality score from 1–100; 80 is the default and 100 disables the lossy LZW pass.
 - Can generate the configured Forge GIF, a delivery-size-limited GIF, or both from the same captured frames.
+- Optionally exports every captured source frame as PNG and/or JPEG ZIP archives. Each archive contains numbered frames plus a timing manifest; JPEG exports flatten transparency onto a selected matte color.
 - In Auto loop mode, exports a finite narrative once even when decorative elements animate indefinitely.
 - Writes a GIF and a detailed `.report.json` beside it.
 - Validates width, height, frame count, duration, loop behavior, and exact byte size.
@@ -105,7 +106,10 @@ The frontend starts one bounded sidecar process with a fixed `convert` argument 
     "maxDurationSeconds": 30,
     "loopMode": "auto",
     "outputMode": "both",
-    "maxBytes": 150000
+    "maxBytes": 150000,
+    "frameExport": "both",
+    "jpegQuality": 90,
+    "jpegBackground": "#ffffff"
   }
 }
 ```
@@ -113,6 +117,8 @@ The frontend starts one bounded sidecar process with a fixed `convert` argument 
 Standard output is newline-delimited JSON with `progress`, `result`, `error`, and `complete` events. Standard error is reserved for diagnostics. Each input is isolated: one failed package is reported without discarding successful outputs from the rest of the batch.
 
 Protocol v4 rejects former presets, editable capture-FPS fields, and Gifsicle compression modes. `outputMode` is `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes. A delivery result also exposes its target, whether it was met, and the number of candidates tested. The desktop UI displays sizes in decimal KB.
+
+`frameExport` is `none`, `png`, `jpeg`, or `both`. Frame archives use the original captured PNG sequence before GIF coalescing, preserving the capture timeline and dimensions. Each ZIP includes `manifest.json` with ordered filenames, timestamps, duration, dimensions, and effective capture FPS. JPEG output uses `jpegQuality` (1–100) and flattens transparent pixels onto `jpegBackground` (`#rrggbb`).
 
 The dithering choices trade size against gradient quality:
 

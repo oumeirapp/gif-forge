@@ -14,6 +14,7 @@ const STAGE_MESSAGES: Record<string, string> = {
   load: "Loading banner package",
   capture: "Capturing animation frames",
   coalesce: "Removing duplicate frames",
+  frames: "Packaging animation frames",
   encode: "Encoding and applying Gifski",
   optimize: "Searching delivery-size candidates",
   analyze: "Comparing dithering variants",
@@ -42,6 +43,7 @@ function itemProgressValue(event: Extract<ProtocolEvent, { type: "progress" }>) 
   if (event.stage === "load") return 2
   if (event.stage === "capture") return 10 + ratio * 35
   if (event.stage === "coalesce") return 50
+  if (event.stage === "frames") return 50 + ratio * 8
   if (event.stage === "encode") return 50 + ratio * 22
   if (event.stage === "optimize") return 50 + ratio * 45
   if (event.stage === "analyze") return 72 + ratio * 13

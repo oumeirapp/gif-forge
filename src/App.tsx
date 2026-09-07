@@ -20,6 +20,9 @@ const DEFAULT_CONFIG: ConversionFormConfig = {
   loopMode: "auto",
   outputMode: "both",
   maxBytes: 150_000,
+  frameExport: "none",
+  jpegQuality: 90,
+  jpegBackground: "#ffffff",
 }
 
 function App() {
@@ -37,12 +40,16 @@ function App() {
       && config.gifskiQuality <= 100,
     maxDurationSeconds: config.maxDurationSeconds >= 0.1 && config.maxDurationSeconds <= 60,
     maxBytes: Number.isInteger(config.maxBytes) && config.maxBytes >= 1 && config.maxBytes <= 10_000_000,
+    jpegQuality: Number.isInteger(config.jpegQuality) && config.jpegQuality >= 1 && config.jpegQuality <= 100,
+    jpegBackground: /^#[0-9a-f]{6}$/i.test(config.jpegBackground),
   }
   const validConfig = configValidity.outputFps
     && configValidity.maxColors
     && configValidity.gifskiQuality
     && configValidity.maxDurationSeconds
     && configValidity.maxBytes
+    && configValidity.jpegQuality
+    && configValidity.jpegBackground
   const ready = inputFolders.length > 0 && Boolean(outputFolder) && validConfig
 
   let readinessTitle = "Batch ready"
