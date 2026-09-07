@@ -43,7 +43,7 @@
     "targets": ["dmg", "app"],
     "macOS": {
       "signingIdentity": "-",
-      "hardenedRuntime": true
+      "hardenedRuntime": false
     }
   }
 }
