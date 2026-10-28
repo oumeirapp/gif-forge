@@ -9,13 +9,9 @@
     "preview": "vite preview",
     "sidecar:install": "npm --prefix sidecar install",
     "sidecar:test": "npm --prefix sidecar test",
-    "sidecar:build": "npm --prefix sidecar run build",
     "gifski:test": "cargo test --manifest-path gifski-worker/Cargo.toml",
     "gifski:build": "node scripts/build-gifski-worker.mjs",
-    "check": "npm run build && npm run gifski:test && npm run sidecar:build && npm run sidecar:test && cargo check --manifest-path src-tauri/Cargo.toml",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "check": "npm run build && npm run gifski:test && npm run sidecar:test && npm run server:test",
     "server": "node server/index.cjs",
     "server:test": "node --test server/test/*.test.cjs"
   },
@@ -27,10 +23,6 @@
     "@fastify/static": "^10.1.8",
     "@fontsource-variable/geist": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2.7.2",
-    "@tauri-apps/plugin-shell": "^2.3.5",
-    "@yao-pkg/pkg": "^6.22.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fastify": "^5.12.7",
@@ -44,7 +36,6 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
     "@types/node": "^26.2.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

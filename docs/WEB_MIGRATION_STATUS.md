@@ -10,7 +10,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 | 1. Engine headless prep | ✅ | |
 | 2. HTTP server | ✅ | 28 tests; real curl E2E passes. |
 | 3. Frontend | ✅ | Browser-verified: ZIP + folder, cancel, refresh reattach. |
-| 4. Remove Tauri | ⬜ | |
+| 4. Remove Tauri | ✅ | `npm run check` green; grep empty. |
 | 5. Container image | ⬜ | |
 | 6. Azure deployment | ⬜ | |
 | 7. Documentation | ⬜ | |
@@ -69,3 +69,17 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 - `POST /api/jobs` also returns `banners` (display names) so the progress bar knows the real banner count (one ZIP can hold several).
 - Queued uploads aren't kept across a refresh (browser `File`s can't be persisted); only the running job reattaches.
 - `.claude/launch.json` has `api` and `web` entries for running both locally.
+
+## Phase 4: Remove Tauri
+
+- [x] Deleted `src-tauri/`, `scripts/build-sidecar.mjs`, `public/tauri.svg`; dropped the Tauri VS Code recommendation and `src-tauri` lines in `.gitignore`.
+- [x] `package.json`: removed `@tauri-apps/*`, `@tauri-apps/cli`, `@yao-pkg/pkg`, the `tauri*` and `sidecar:build` scripts; `check` = `build && gifski:test && sidecar:test && server:test`.
+- [x] `sidecar/README.md` updated (no pkg/Tauri build; worker install location; no-sandbox flag).
+- [x] `grep -ri tauri src server sidecar scripts` → no matches.
+- [x] Clean `rm -rf node_modules sidecar/node_modules && npm install && npm run sidecar:install && npm run check` ✅ (build, gifski 2/2, sidecar 24/24, server 28/28).
+- [x] `npm audit fix` (non-breaking) cleared the Fastify chain (`proxy-addr`, `fast-uri`) plus vite/undici etc.
+
+**Open items**
+- `npm install` doesn't install `sidecar/` deps; run `npm run sidecar:install` too (the Dockerfile does this).
+- `npm audit --omit=dev` still lists `@azure/identity` → `@azure/msal-node` (high; npm's only suggested "fix" is a downgrade) and `shadcn` (low, already on `main`; `shadcn` is a CLI and could move to devDependencies). Re-check when new `@azure/identity` releases land.
+- `README.md` / `docs/DEVELOPMENT.md` still describe Tauri. That's Phase 7.
