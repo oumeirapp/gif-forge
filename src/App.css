@@ -72,6 +72,10 @@
 }
 
 .app-shell { @apply flex min-h-screen flex-col; }
+.login-shell { @apply flex min-h-screen items-center justify-center bg-background p-4; }
+.login-card { @apply w-full max-w-sm; }
+.login-mark { @apply mb-2; }
+.login-form { @apply flex flex-col gap-4; }
 .app-header { @apply flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6 lg:px-8; }
 .brand-lockup { @apply flex min-w-0 items-center gap-3; }
 .brand-mark { @apply flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground; }

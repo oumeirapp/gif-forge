@@ -1,10 +1,15 @@
+import { Aperture, Circle, Code, LogOut } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Aperture, Circle, Code } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 // Gifski is AGPL: a network service must offer its source, so keep this link visible.
 const SOURCE_URL = import.meta.env.VITE_SOURCE_URL
 
-export function AppHeader() {
+interface AppHeaderProps {
+  onSignOut?: () => void
+}
+
+export function AppHeader({ onSignOut }: AppHeaderProps) {
   return (
     <header className="app-header">
       <div className="brand-lockup">
@@ -27,6 +32,11 @@ export function AppHeader() {
           <Circle data-icon="inline-start" />
           Cloud engine
         </Badge>
+        {onSignOut ? (
+          <Button type="button" size="sm" variant="ghost" onClick={onSignOut}>
+            <LogOut data-icon="inline-start" /> Sign out
+          </Button>
+        ) : null}
       </div>
     </header>
   )

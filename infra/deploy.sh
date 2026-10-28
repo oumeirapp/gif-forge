@@ -4,14 +4,18 @@
 # (`az login`) with Owner or User Access Administrator on the resource group, because it
 # assigns roles. No secrets are written to the repository; the app uses managed identity.
 #
-# Usage (from the repository root):
-#   APP_NAME=fallback-forge-prod SOURCE_URL=https://github.com/<org>/gif-forge infra/deploy.sh
+# Usage (from the repository root). Single-quote the password so the shell doesn't expand
+# characters such as $ inside it:
+#   APP_NAME=fallback-forge-prod SOURCE_URL=https://github.com/<org>/gif-forge \
+#   ACCESS_PASSWORD='<shared team password>' infra/deploy.sh
 #
-# Easy Auth (Entra ID sign-in) is configured separately; see docs/DEVELOPMENT.md.
+# Sign-in is a temporary shared password (ACCESS_PASSWORD); see docs/AZURE_DEPLOYMENT.md.
 set -euo pipefail
 
 : "${APP_NAME:?Set APP_NAME (globally unique, becomes <APP_NAME>.azurewebsites.net)}"
 : "${SOURCE_URL:?Set SOURCE_URL to the public source repository (Gifski AGPL requirement)}"
+: "${ACCESS_PASSWORD:?Set ACCESS_PASSWORD to the shared team password, in single quotes}"
+if [ "${#ACCESS_PASSWORD}" -lt 8 ]; then echo "ACCESS_PASSWORD must be at least 8 characters." >&2; exit 1; fi
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-${APP_NAME}}"
 LOCATION="${LOCATION:-westeurope}"
 ACR_NAME="${ACR_NAME:-$(echo "${APP_NAME}acr" | tr -cd 'a-z0-9' | cut -c1-50)}"
@@ -71,9 +75,16 @@ for role in "Storage Blob Data Contributor" "Storage Blob Delegator"; do
 done
 
 echo "==> App settings"
+# SESSION_SECRET signs session cookies. Generate it once: replacing it signs everyone out.
+SESSION_SETTINGS=()
+if [ -z "$(az webapp config appsettings list --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+  --query "[?name=='SESSION_SECRET'].name" --output tsv)" ]; then
+  SESSION_SETTINGS+=("SESSION_SECRET=$(openssl rand -base64 48 | tr -d '\n')")
+fi
 az webapp config appsettings set --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" --output none --settings \
   WEBSITES_PORT=8080 \
-  REQUIRE_AUTH=1 \
+  "ACCESS_PASSWORD=${ACCESS_PASSWORD}" \
+  ${SESSION_SETTINGS[@]+"${SESSION_SETTINGS[@]}"} \
   STORAGE=blob \
   AZURE_STORAGE_ACCOUNT="$STORAGE_ACCOUNT" \
   AZURE_STORAGE_CONTAINER="$CONTAINER_NAME" \
@@ -95,5 +106,5 @@ az webapp restart --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" --output
 
 echo
 echo "Deployed https://${APP_NAME}.azurewebsites.net"
-echo "Next: turn on Easy Auth (Microsoft identity provider) as described in docs/DEVELOPMENT.md."
-echo "Until then every /api request returns 401 because REQUIRE_AUTH=1."
+echo "Sign in with the shared ACCESS_PASSWORD. To change it later, re-run with a new ACCESS_PASSWORD."
+echo "Then run the checks in docs/AZURE_DEPLOYMENT.md Part E."

@@ -25,7 +25,11 @@ const DEFAULT_CONFIG: ConversionFormConfig = {
   jpegBackground: "#ffffff",
 }
 
-function App() {
+interface AppProps {
+  onSignOut?: () => void
+}
+
+function App({ onSignOut }: AppProps) {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const [uploadError, setUploadError] = useState("")
@@ -72,7 +76,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <AppHeader />
+      <AppHeader onSignOut={onSignOut} />
       <main className="app-main">
         <FilmRail
           phase={job.phase}

@@ -12,7 +12,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 | 3. Frontend | ✅ | Browser-verified: ZIP + folder, cancel, refresh reattach. |
 | 4. Remove Tauri | ✅ | `npm run check` green; grep empty. |
 | 5. Container image | ✅ | arm64 build verified, incl. VMAF/CAMBI. amd64 is built by `az acr build` at deploy time (local builds blocked by Netskope TLS interception). |
-| 6. Azure deployment | 🟡 | Code, script and step-by-step guide done ([AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)). ⚠️ Not deployed yet: needs your Azure subscription; Easy Auth is a manual portal step. |
+| 6. Azure deployment | 🟡 | Code, script and step-by-step guide done ([AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)). Sign-in is a **temporary shared password** (Entra denied; Okta later). ⚠️ Not deployed yet. |
 | 7. Documentation | ✅ | README + DEVELOPMENT rewritten. |
 
 ## Phase 0: Baseline (2026-10-28)
@@ -137,10 +137,29 @@ Checked against every "Done when" in WEB_MIGRATION.md:
 | 3 | `build` passes; ZIP + folder uploads produce GIFs; cancel; refresh reattaches | ✅ browser-verified |
 | 4 | `npm install && npm run check` passes; Tauri grep empty | ✅ after a fix: a **fresh clone failed** because `npm install` didn't install `sidecar/` deps (`Cannot find module 'playwright-core'`). Added a guarded `postinstall` (skips when `sidecar/package.json` is missing, as in the Docker web stage). Fresh clone now passes (2 + 24 + 28 tests). |
 | 5 | Image builds; `/healthz` 200; E2E ZIP; sandbox test | ✅ arm64 locally (sandbox works, VMAF/CAMBI confirmed). amd64 is built by `az acr build` (decision). |
-| 6 | Signed-in upload, >4 min batch, downloads, sign-in redirect on `*.azurewebsites.net` | ⬜ **Not done: requires deploying to your subscription** (guide Part E) |
+| 6 | Signed-in upload, >4 min batch, downloads, sign-in enforced on `*.azurewebsites.net` | ⬜ **Not done: requires deploying to your subscription** (guide Part E). Sign-in is now the shared password, not Entra |
 | 7 | README, DEVELOPMENT, licensing notes | ✅ |
 
 **Code migration:** complete. All code, tests, image, script and docs are in place and verified locally.
 **Overall migration:** not 100%. Phase 6's acceptance can only be proven by deploying (AZURE_DEPLOYMENT.md Parts B, D, E).
 
 Docker builds on the office network currently fail at `npm ci` and `cargo build` (Netskope intercepts registry TLS inside containers: `SELF_SIGNED_CERT_IN_CHAIN`). The postinstall guard was verified directly instead (no `sidecar/` → exits 0, runs nothing). `az acr build` isn't affected.
+
+## Change: shared-password sign-in instead of Entra ID (2026-10-28)
+
+**Why:** the Entra/IT admin refused Entra ID for any application. The organisation's direction is Okta, which is a longer process. As a temporary measure, the team signs in with one shared password, and Okta comes in a later release. This deviates from WEB_MIGRATION.md §Auth and Phase 6 step 5.
+
+- [x] `server/auth.cjs`: `createPasswordAuth` (constant-time password check; HMAC-signed stateless session token with expiry; cookie `forge_session`: `HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS) and `LoginRateLimiter` (10 failures / 15 min per client address, then 429; port stripped from App Service's `ip:port`).
+- [x] `server/config.cjs`: `ACCESS_PASSWORD` (min 8 chars) → `authMode: 'password'`; `SESSION_SECRET`; `SESSION_TTL_MS` (12 h). Precedence: password > Easy Auth (`REQUIRE_AUTH=1`) > none.
+- [x] `server/index.cjs`: `GET/POST/DELETE /api/session`. In password mode every other `/api` route needs a valid session, and the **Easy Auth header is ignored** (it could be forged without Easy Auth in front). Each sign-in gets its own owner (`session:<id>`), so people sharing the password can't see each other's jobs. `/healthz` and the static UI stay public.
+- [x] UI: `AuthGate` + `LoginPage`; **Sign out** in the header; any 401 (upload, snapshot, cancel, a stream that drops) returns to the login page with "Your session has ended".
+- [x] Tests: `server/test/password-auth.test.cjs` (9 tests: mode selection, tamper/expiry/wrong-secret rejection, exact password match, rate limiter, cookie flags incl. `Secure` behind HTTPS proxy, header-spoof rejection, per-session isolation, 429 lockout, route disabled without a password). `server:test` 37/37.
+- [x] Browser-verified locally with a test password: login page, wrong password → "Incorrect password.", right password → app, conversion + GIF download over the session, `document.cookie` empty (HttpOnly), expired session → login with notice, Sign out → login + API 401.
+- [x] `infra/deploy.sh`: requires `ACCESS_PASSWORD` (single-quoted; checked for length), generates `SESSION_SECRET` only on the first run (so re-runs don't sign everyone out), no longer sets `REQUIRE_AUTH`. Checked under macOS bash 3.2 (empty-array guard; `$$` preserved when single-quoted).
+- [x] Docs: AZURE_DEPLOYMENT Part D rewritten (how it works, sharing and rotating the password, limits, Okta path), A1/A4/B/C6/E2/E5/G/H updated; DEVELOPMENT "Authentication" section + env vars; README.
+
+**The password is not in the repository.** Set it only as the App Service setting `ACCESS_PASSWORD`.
+
+**Known limits (accepted for now):** no individual accounts or audit trail; sessions are stateless (sign-out clears only that browser; rotating `SESSION_SECRET` signs everyone out); the lockout counter is in memory (cleared on restart).
+
+**Next release, Okta:** App Service authentication → OpenID Connect provider (Okta), then remove `ACCESS_PASSWORD`/`SESSION_SECRET` and set `REQUIRE_AUTH=1`. The server's Easy Auth mode and `/.auth/logout` sign-out already exist, so this should be mostly configuration (AZURE_DEPLOYMENT D5).

@@ -9,6 +9,7 @@ import type {
   ServerJobStatus,
   UploadItem,
 } from "@/types/conversion"
+import { notifyUnauthorized } from "@/lib/session"
 
 const INITIAL_STATE: JobState = {
   phase: "idle",
@@ -106,6 +107,7 @@ function storeJobId(jobId: string | null) {
 }
 
 async function responseError(response: Response, fallback: string) {
+  if (response.status === 401) notifyUnauthorized()
   try {
     const body = await response.json() as { error?: string }
     return body.error ?? fallback
@@ -129,6 +131,7 @@ function uploadJob(
     }
     request.onload = () => {
       const body = request.response as { jobId?: string, banners?: string[], error?: string } | null
+      if (request.status === 401) notifyUnauthorized()
       if (request.status === 202 && body?.jobId) resolve({ jobId: body.jobId, banners: body.banners })
       else reject(new Error(body?.error ?? `Upload failed with status ${request.status}`))
     }

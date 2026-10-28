@@ -12,13 +12,20 @@ const {
   resolveExecutable,
   toolAvailable,
 } = require('../sidecar/lib/tools.cjs');
-const { resolveOwner } = require('./auth.cjs');
+const {
+  LoginRateLimiter,
+  SESSION_COOKIE,
+  createPasswordAuth,
+  parseCookies,
+  resolveOwner,
+} = require('./auth.cjs');
 const { readConfig } = require('./config.cjs');
 const { JobManager, isTerminal } = require('./jobs.cjs');
 const { createStorage } = require('./storage.cjs');
 const { UploadAssembler, UploadError } = require('./uploads.cjs');
 
 const SSE_PING_MS = 20_000;
+const FAILED_LOGIN_DELAY_MS = 500;
 const HEALTH_CACHE_MS = 30_000;
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -95,6 +102,15 @@ async function readUpload(request, config, workDirectory) {
   return { banners, conversionConfig };
 }
 
+// App Service's X-Forwarded-For can carry "ip:port"; drop the port so retries share one key.
+function clientKey(request) {
+  return String(request.ip || '').replace(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/, '$1');
+}
+
+function pathOf(request) {
+  return request.url.split('?')[0];
+}
+
 function uploadErrorStatus(error) {
   if (error instanceof UploadError) return error.statusCode;
   if (['FST_REQ_FILE_TOO_LARGE', 'FST_FILES_LIMIT', 'FST_PARTS_LIMIT', 'FST_FIELDS_LIMIT'].includes(error.code)) return 413;
@@ -121,6 +137,18 @@ function buildServer(config = readConfig(), overrides = {}) {
   });
   const healthCheck = overrides.checkTools ?? checkTools;
   let cachedHealth = null;
+  const passwordAuth = config.authMode === 'password'
+    ? createPasswordAuth({ password: config.accessPassword, sessionSecret: config.sessionSecret, sessionTtlMs: config.sessionTtlMs })
+    : null;
+  const loginLimiter = overrides.loginLimiter ?? new LoginRateLimiter();
+  const failedLoginDelayMs = overrides.failedLoginDelayMs ?? FAILED_LOGIN_DELAY_MS;
+  if (passwordAuth && !config.sessionSecret) {
+    app.log.warn('SESSION_SECRET is not set; sessions will not survive a restart.');
+  }
+
+  function passwordSession(request) {
+    return passwordAuth.verifySession(parseCookies(request.headers.cookie)[SESSION_COOKIE]);
+  }
 
   app.decorate('jobs', jobs);
 
@@ -142,10 +170,47 @@ function buildServer(config = readConfig(), overrides = {}) {
   });
 
   app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/api/')) return;
+    if (!request.url.startsWith('/api/') || pathOf(request) === '/api/session') return;
+    if (passwordAuth) {
+      // The Easy Auth header is ignored here: without Easy Auth in front, anyone could send it.
+      const session = passwordSession(request);
+      if (!session) return reply.code(401).send({ error: 'Sign-in required.' });
+      request.owner = `session:${session.sid}`;
+      return;
+    }
     const owner = resolveOwner(request.headers, { requireAuth: config.requireAuth });
     if (!owner) return reply.code(401).send({ error: 'Sign-in required.' });
     request.owner = owner;
+  });
+
+  app.get('/api/session', async (request) => {
+    if (passwordAuth) return { mode: 'password', authenticated: Boolean(passwordSession(request)) };
+    const owner = resolveOwner(request.headers, { requireAuth: config.requireAuth });
+    return { mode: config.authMode, authenticated: Boolean(owner) };
+  });
+
+  app.post('/api/session', async (request, reply) => {
+    if (!passwordAuth) return reply.code(404).send({ error: 'Password sign-in is not enabled.' });
+    const key = clientKey(request);
+    const retryAfter = loginLimiter.retryAfterSeconds(key);
+    if (retryAfter) {
+      return reply.code(429).header('Retry-After', retryAfter)
+        .send({ error: `Too many failed attempts. Try again in ${Math.ceil(retryAfter / 60)} min.` });
+    }
+    if (!passwordAuth.checkPassword(request.body?.password)) {
+      loginLimiter.recordFailure(key);
+      await new Promise((resolve) => setTimeout(resolve, failedLoginDelayMs));
+      return reply.code(401).send({ error: 'Incorrect password.' });
+    }
+    loginLimiter.reset(key);
+    const { token, session } = passwordAuth.issueSession();
+    reply.header('Set-Cookie', passwordAuth.sessionCookie(token, { secure: request.protocol === 'https' }));
+    return { mode: 'password', authenticated: true, expiresAt: new Date(session.exp).toISOString() };
+  });
+
+  app.delete('/api/session', async (request, reply) => {
+    if (passwordAuth) reply.header('Set-Cookie', passwordAuth.clearedCookie({ secure: request.protocol === 'https' }));
+    return { mode: config.authMode, authenticated: false };
   });
 
   function findJob(request, reply) {

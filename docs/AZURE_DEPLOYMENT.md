@@ -4,12 +4,12 @@ A step-by-step guide for the first production deployment and for later updates. 
 
 ```text
 Browser ──► App Service (Linux, B3, 1 instance) ──► Blob Storage (outputs, 7-day expiry)
-              │  Easy Auth: Entra ID sign-in
+              │  Sign-in: shared team password (temporary; Okta planned)
               │  Container image pulled from ACR with managed identity
               └─ /healthz health check, HTTPS only, TLS 1.2
 ```
 
-You can provision everything with one script (**Part B**) or click through it yourself (**Part C**). Either way, sign-in is set up in **Part D** and checked in **Part E**.
+You can provision everything with one script (**Part B**) or click through it yourself (**Part C**). Either way, how sign-in works and how to manage the password is in **Part D**, and everything is checked in **Part E**.
 
 ---
 
@@ -19,8 +19,8 @@ You can provision everything with one script (**Part B**) or click through it yo
 
 - [ ] **Azure CLI** 2.60 or newer: `az version`. Install: <https://learn.microsoft.com/cli/azure/install-azure-cli>.
 - [ ] **Git**, run from the repository root on the commit you want to ship.
-- [ ] An Azure subscription where you can **create resources and assign roles**: *Owner*, or *Contributor* plus *User Access Administrator*, on the subscription or the target resource group. The script assigns roles (AcrPull, Storage Blob Data Contributor, Storage Blob Delegator); without this right it stops partway through.
-- [ ] Permission to **create an app registration** in Microsoft Entra ID (needed in Part D). If your tenant restricts this, ask an Entra admin to do step D2 for you.
+- [ ] An Azure subscription where you can **create resources and assign roles**: *Owner*, or *Contributor* plus *User Access Administrator*, on the subscription or the target resource group. The script assigns roles (AcrPull, Storage Blob Data Contributor, Storage Blob Delegator); without this right it stops partway through. If you can't get role-assignment rights, ask the subscription owner to run the four `az role assignment create` commands in C4 and C5 for you.
+- [ ] **No Microsoft Entra ID setup is needed.** For now, sign-in is a shared team password (Part D).
 
 Docker isn't needed: the image is built in Azure by `az acr build`, which always produces the linux/amd64 image App Service runs.
 
@@ -57,6 +57,7 @@ export REQUESTS_CA_BUNDLE=/path/to/corporate-ca-bundle.pem
 | --- | --- | --- |
 | `APP_NAME` | `fallback-forge-prod` | Globally unique; becomes `https://<APP_NAME>.azurewebsites.net` |
 | `SOURCE_URL` | `https://github.com/oumeirapp/gif-forge` | **Public** repository with the `gifski-worker` source. Required by Gifski's AGPL; shown as "Source (AGPL)" in the UI |
+| `ACCESS_PASSWORD` | *(choose one)* | Shared team password, at least 8 characters. **Never commit it**; share it with the team privately (e.g. a password manager). Always wrap it in **single quotes** in the shell: characters like `$` are otherwise expanded (`"Ex4mple$$pw"` would silently become `Ex4mple`, the shell's process id, then `pw`) |
 | `RESOURCE_GROUP` | `rg-fallback-forge-prod` | Optional, defaults to `rg-<APP_NAME>` |
 | `LOCATION` | `westeurope` | Optional, defaults to `westeurope`. List: `az account list-locations -o table` |
 | `ACR_NAME` | `fallbackforgeprodacr` | Optional; 5–50 lowercase letters/digits, globally unique |
@@ -83,6 +84,7 @@ git status           # commit first: the image is tagged with the current commit
 ```bash
 APP_NAME=fallback-forge-prod \
 SOURCE_URL=https://github.com/oumeirapp/gif-forge \
+ACCESS_PASSWORD='<the team password>' \
 LOCATION=westeurope \
 infra/deploy.sh
 ```
@@ -94,7 +96,7 @@ Expect 10–20 minutes, most of it the image build. It prints a `==>` line per s
 3. App Service plan (Linux B3) and web app, with a managed identity
 4. `AcrPull` for the web app
 5. Storage account, `outputs` container, 7-day lifecycle rule, and roles
-6. App settings
+6. App settings (including `ACCESS_PASSWORD`, and a generated `SESSION_SECRET` on the first run)
 7. General settings (Always On, health check, HTTPS, TLS 1.2, logs)
 8. Deploy the image and restart
 
@@ -108,7 +110,7 @@ Fix the cause and **run it again**. Common causes:
 - **`The storage account named ... is already taken`** (or the ACR name): set `STORAGE_ACCOUNT=` / `ACR_NAME=` to something unique.
 - **`az storage container create` keeps failing:** role assignments take up to ~5 minutes to apply. The script retries for 2 minutes; just re-run it.
 
-Then go to **Part D**. Until sign-in is set up, every `/api` call returns 401, because `REQUIRE_AUTH=1` is already on.
+The app is then live behind the password login. Read **Part D** for how sign-in works and how to change the password, then run the checks in **Part E**.
 
 ---
 
@@ -119,6 +121,7 @@ Use this if you prefer the portal, or to understand or repair one piece. Command
 ```bash
 APP_NAME=fallback-forge-prod
 SOURCE_URL=https://github.com/oumeirapp/gif-forge
+ACCESS_PASSWORD='<the team password>'      # single quotes!
 RG=rg-$APP_NAME
 LOCATION=westeurope
 ACR=fallbackforgeprodacr
@@ -198,13 +201,15 @@ az storage account management-policy create --resource-group $RG --account-name 
   "actions":{"baseBlob":{"delete":{"daysAfterModificationGreaterThan":7}}}}}]}'
 ```
 
-### C6. App settings
+### C6. App settings (including `ACCESS_PASSWORD`, and a generated `SESSION_SECRET` on the first run)
 
 ```bash
 az webapp config appsettings set --resource-group $RG --name $APP_NAME --settings \
-  WEBSITES_PORT=8080 REQUIRE_AUTH=1 STORAGE=blob \
-  AZURE_STORAGE_ACCOUNT=$STORAGE AZURE_STORAGE_CONTAINER=outputs MAX_CONCURRENT_JOBS=2
+  WEBSITES_PORT=8080 "ACCESS_PASSWORD=$ACCESS_PASSWORD" "SESSION_SECRET=$(openssl rand -base64 48)" \
+  STORAGE=blob AZURE_STORAGE_ACCOUNT=$STORAGE AZURE_STORAGE_CONTAINER=outputs MAX_CONCURRENT_JOBS=2
 ```
+
+Set `SESSION_SECRET` only once: generating a new one signs everyone out. Don't set `REQUIRE_AUTH`; it's for Easy Auth, which isn't used.
 
 Portal: *Web app → Settings → Environment variables*. Don't add `BANNER_FORGE_CHROMIUM_NO_SANDBOX` yet; see E3. The full list of variables is in [DEVELOPMENT.md](DEVELOPMENT.md#environment-variables).
 
@@ -231,49 +236,46 @@ az webapp restart --resource-group $RG --name $APP_NAME
 
 ---
 
-## Part D: Turn on sign-in (Easy Auth with Microsoft Entra ID)
+## Part D: Sign-in (temporary shared password)
 
-This step is always manual. Until it's done, the site loads but every API call returns 401.
+Microsoft Entra ID isn't available for this app, and Okta is planned for a later release. Until then, the app has its own login page protected by one **shared team password**.
 
-### D1. Open Authentication
+### D1. How it works
 
-Portal: *App Services → `<APP_NAME>` → Settings → Authentication → Add identity provider*.
+- The password is stored only in the App Service setting `ACCESS_PASSWORD`, never in the code or the image.
+- Visiting the site shows a login page. The right password gives the browser a signed, `HttpOnly`, `Secure`, `SameSite=Strict` session cookie, valid for 12 hours (`SESSION_TTL_MS`). After that, the user is asked to sign in again.
+- **Each sign-in is its own private workspace.** People sharing the password can't see or download each other's jobs.
+- Repeated wrong passwords from one address are locked out for 15 minutes after 10 failures.
+- The health check (`/healthz`) and the page itself load without signing in; every `/api` call needs a session.
 
-### D2. Configure the Microsoft provider
+### D2. Sharing the password
 
-| Field | Value |
-| --- | --- |
-| Identity provider | **Microsoft** |
-| Tenant type | **Workforce configuration (current tenant)** |
-| App registration type | **Create new app registration** (or pick one an admin created) |
-| Name | `fallback-forge-prod` |
-| Supported account types | **Current tenant – Single tenant** |
-| Client application requirement | Allow requests only from this application itself |
-| Identity requirement | Allow requests from any identity in the tenant (or restrict to specific identities) |
-| Tenant requirement | Allow requests only from the issuer tenant |
-| Restrict access | **Require authentication** |
-| Unauthenticated requests | **HTTP 302 Found redirect: recommended for websites** |
-| Token store | On |
+Give it to the team through a password manager or a private channel, not email or chat history that others can search. Use a long password: anyone who has it, or guesses it, can use the app.
 
-Select **Add**. Azure creates the app registration and its client secret (stored as the `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` app setting) and adds the redirect URI `https://<APP_NAME>.azurewebsites.net/.auth/login/aad/callback`.
-
-### D3. (Optional) Limit who can sign in
-
-Everyone in your tenant can sign in by default. To limit access to specific people or a group: *Entra ID → Enterprise applications → `fallback-forge-prod` → Properties → Assignment required: Yes*, then *Users and groups → Add* the allowed people or group.
-
-### D4. Why this is secure
-
-Easy Auth sits in front of the container. For signed-in users it adds the `X-MS-CLIENT-PRINCIPAL-ID` header, and it strips any copy a client tries to send. The server (`REQUIRE_AUTH=1`) uses that header as the job owner, so each user can only see and download their own jobs.
-
-### D5. Health check after enabling auth
-
-If *Monitoring → Health check* starts reporting the instance unhealthy after D2, exclude the probe path from authentication:
+### D3. Changing the password
 
 ```bash
-az webapp auth update --resource-group $RG --name $APP_NAME --excluded-paths "[\"/healthz\"]"
+az webapp config appsettings set --resource-group $RG --name $APP_NAME --settings 'ACCESS_PASSWORD=<new password>'
 ```
 
-(Run `az webapp auth update --help` to confirm the flag format for your CLI version.) `/healthz` only reports whether FFmpeg, Chromium and the Gifski worker resolve; it exposes no user data.
+Changing the app setting restarts the app (running jobs stop). Existing sessions stay valid until they expire. To **sign everyone out immediately** (e.g. after someone leaves the team), also replace `SESSION_SECRET`:
+
+```bash
+az webapp config appsettings set --resource-group $RG --name $APP_NAME --settings "SESSION_SECRET=$(openssl rand -base64 48)"
+```
+
+### D4. Limits of this approach
+
+This is a stopgap, not individual accounts: there are no per-person logins or audit trail, and anyone with the password has the same access. For extra protection, combine it with network restrictions (*Networking → Access restriction* → allow only your office or VPN ranges).
+
+### D5. Later: Okta
+
+App Service authentication supports any **OpenID Connect** provider, including Okta. The app already understands App Service's user-ID header (`REQUIRE_AUTH=1` mode), so moving to Okta should mostly be configuration:
+
+1. In Okta, create an OIDC *Web* app with sign-in redirect URI `https://<APP_NAME>.azurewebsites.net/.auth/login/<provider-name>/callback`.
+2. In the portal: *Authentication → Add identity provider → OpenID Connect*, with Okta's issuer URL, client ID and secret. Require authentication, with a 302 redirect.
+3. Remove `ACCESS_PASSWORD` (and `SESSION_SECRET`), and set `REQUIRE_AUTH=1`.
+4. Point the UI's sign-out at `/.auth/logout` (already done when `REQUIRE_AUTH=1`).
 
 ---
 
@@ -293,11 +295,13 @@ az webapp log tail --resource-group $RG --name $APP_NAME
 ### E2. Sign-in is enforced
 
 ```bash
-curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://$APP_NAME.azurewebsites.net/
+curl -s https://$APP_NAME.azurewebsites.net/api/session                    # {"mode":"password","authenticated":false}
+curl -s -o /dev/null -w "%{http_code}\n" https://$APP_NAME.azurewebsites.net/api/jobs/x   # 401
 ```
 
-- [ ] Returns `302` to `login.microsoftonline.com/...`.
-- [ ] In a private browser window the site sends you to Microsoft sign-in; after signing in you see Fallback Forge.
+- [ ] `/api/session` reports `"mode":"password"`. If it says `"none"`, `ACCESS_PASSWORD` isn't set and **the app is open to anyone**: fix that first.
+- [ ] In a private browser window the site shows the login page. A wrong password shows "Incorrect password."; the right one opens Fallback Forge.
+- [ ] **Sign out** (top right) returns to the login page.
 - [ ] The header shows the **Source (AGPL)** link, and it opens `SOURCE_URL`.
 
 ### E3. A conversion works (and the Chromium sandbox decision)
@@ -325,9 +329,9 @@ App Service closes idle HTTP connections after about 230 s. The app sends a hear
 4. [ ] Refresh the page in the middle of the batch: it reconnects and carries on.
 5. [ ] Start another batch and choose **Cancel**: it stops within a few seconds.
 
-### E5. Users can't see each other's jobs
+### E5. Sessions can't see each other's jobs
 
-- [ ] Sign in as a second user and open `https://<APP_NAME>.azurewebsites.net/api/jobs/<a jobId from user 1>`: it returns **404**.
+- [ ] Sign in in a second browser (or private window) and open `https://<APP_NAME>.azurewebsites.net/api/jobs/<a jobId from the first browser>`: it returns **404**.
 
 When E1–E5 pass, mark Phase 6 done in [WEB_MIGRATION_STATUS.md](WEB_MIGRATION_STATUS.md).
 
@@ -367,7 +371,10 @@ az webapp restart --resource-group $RG --name $APP_NAME
 | --- | --- |
 | Site shows *Application Error* / container keeps restarting | `az webapp log tail`. Check `WEBSITES_PORT=8080` is set, and that the image pull worked (AcrPull role + `acrUseManagedIdentityCreds`). |
 | `ImagePullFailure` / `unauthorized` pulling from ACR | Role assignments take a few minutes. Re-check C4, then restart. |
-| Every `/api` call returns 401 | Easy Auth isn't set up or isn't requiring sign-in (Part D). |
+| Login page says "Incorrect password." with the right password | The value was mangled by the shell when it was set (usually unquoted `$`). Re-set it with single quotes (D3). |
+| "Too many failed attempts" | 10 wrong passwords from your address in 15 minutes. Wait it out, or restart the app to clear the counter. |
+| Signed out unexpectedly | The session lasts 12 h (`SESSION_TTL_MS`), and a new `SESSION_SECRET` signs everyone out. If `SESSION_SECRET` is missing, every restart signs everyone out: set it (C6). |
+| No login page; the app opens directly | `ACCESS_PASSWORD` isn't set, so the app is **unprotected**. Set it now (D3). |
 | Downloads return 403 from `blob.core.windows.net` | The app identity lacks **Storage Blob Delegator** or **Storage Blob Data Contributor** (C5), or the roles haven't applied yet. |
 | Result row shows "Could not store output" | Same as above, or `AZURE_STORAGE_ACCOUNT` / `AZURE_STORAGE_CONTAINER` is wrong. |
 | `/healthz` returns 503 | The JSON names the missing tool. The image sets all three paths, so this usually means a broken image: rebuild. |
@@ -386,4 +393,4 @@ Deletes the app, registry, images, and all stored outputs. This can't be undone.
 az group delete --name $RG --yes
 ```
 
-Also delete the Entra app registration created in D2 (*Entra ID → App registrations → `fallback-forge-prod` → Delete*).
+Also remove the shared password from wherever the team stored it.

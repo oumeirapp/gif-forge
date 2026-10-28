@@ -16,7 +16,7 @@ server/                 Node HTTP server (Fastify, CommonJS)
   uploads.cjs           Multipart parsing, ZIP extraction, folder reassembly, limits
   jobs.cjs              Job store, FIFO queue, engine child processes, event buffer
   storage.cjs           Local and Azure Blob output backends
-  auth.cjs              Easy Auth principal -> job owner
+  auth.cjs              Sign-in: shared-password sessions, or Easy Auth principal -> job owner
   test/                 node:test suites (fake engine in test/fixtures)
 sidecar/                Conversion engine (one CLI process per job)
   bin/                  CLI entry point and protocol handling
@@ -36,7 +36,7 @@ Dockerfile              Multi-stage image (Rust worker, UI build, Playwright run
 
 1. **Upload.** The user adds ZIPs, `.html` files, or folders. `useConversion.run` posts one `multipart/form-data` request to `POST /api/jobs`: a `config` field, then for every file a `paths` field (its relative path) followed by the file. Upload progress shows as "Uploading… n%".
 2. **Unpack.** `uploads.cjs` streams parts into `${WORK_ROOT}/<jobId>/input`. Each ZIP is extracted into its own folder; a root `index.html` makes it one banner, otherwise every top-level folder with `index.html` is one. Folder uploads are rebuilt from their relative paths, one banner per top-level folder. Traversal, absolute paths, and symlinks are rejected or skipped, and the size/count limits are enforced while streaming. The server answers `202 { jobId, banners }`.
-3. **Queue.** `jobs.cjs` queues the job (FIFO, at most `MAX_CONCURRENT_JOBS` running). Jobs record their owner; every `/api/jobs/:id*` route returns 404 to anyone else.
+3. **Queue.** `jobs.cjs` queues the job (FIFO, at most `MAX_CONCURRENT_JOBS` running). Jobs record their owner (see [Authentication](#authentication)); every `/api/jobs/:id*` route returns 404 to anyone else.
 4. **Run.** The runner spawns `node sidecar/bin/banner-forge-sidecar.cjs convert` detached (own process group), writes one protocol-v4 request line to stdin, and parses stdout as NDJSON. Inside the engine, each banner is served from an ephemeral `127.0.0.1` server, captured in headless Chromium at 24 FPS, encoded with FFmpeg + Gifski, and validated.
 5. **Rewrite.** Each event is stored in the job's buffer with an increasing id. `result` events have `outputPath`/`reportPath` replaced by `fileName`, `downloadUrl`, `reportFileName`, and `reportUrl` (after uploading to Blob when `STORAGE=blob`). `inputPath` becomes the banner's display name and server paths are removed from messages.
 6. **Stream.** The browser opens `EventSource('/api/jobs/:id/events')`. The server replays buffered events after `Last-Event-ID` (or `?lastEventId=`), then streams live ones, with a `: ping` comment every 20 s so idle proxies don't cut the connection. The client closes the stream on `complete`.
@@ -132,7 +132,10 @@ curl -OJ localhost:8080/api/jobs/<jobId>/files/<fileName>
 | `MAX_UNZIPPED_BYTES` | `314572800` (300 MB) | Extracted size cap per job |
 | `MAX_FILES` | `5000` | File count cap per job |
 | `MAX_BANNERS_PER_JOB` | `25` | Banner count cap |
-| `REQUIRE_AUTH` | unset | `1` = require the Easy Auth `X-MS-CLIENT-PRINCIPAL-ID` header (401 otherwise) |
+| `ACCESS_PASSWORD` | unset | Shared team password (min 8 chars). Set = login page + session cookie required for `/api` (the current production setup) |
+| `SESSION_SECRET` | random per start | Key that signs session cookies. Set it in production, or every restart signs everyone out; changing it signs everyone out |
+| `SESSION_TTL_MS` | `43200000` (12 h) | Session lifetime |
+| `REQUIRE_AUTH` | unset | `1` = require the App Service Easy Auth `X-MS-CLIENT-PRINCIPAL-ID` header (401 otherwise). For a future Okta/OIDC setup; ignored when `ACCESS_PASSWORD` is set |
 | `STORAGE` | `local` | `local` or `blob` |
 | `AZURE_STORAGE_CONNECTION_STRING` | – | Blob access with an account key |
 | `AZURE_STORAGE_ACCOUNT` | – | Blob access with managed identity (`DefaultAzureCredential`) |
@@ -145,9 +148,27 @@ curl -OJ localhost:8080/api/jobs/<jobId>/files/<fileName>
 | `BANNER_FORGE_GIFSKI_INSTALL_DIR` | `sidecar/bin` | Build-time: where `gifski:build` installs the worker |
 | `VITE_SOURCE_URL` | – | Build-time: the "Source (AGPL)" link in the UI |
 
+## Authentication
+
+`server/auth.cjs` supports three modes, picked from the environment by `config.cjs`:
+
+| Mode | When | How a request gets its owner |
+| --- | --- | --- |
+| `password` | `ACCESS_PASSWORD` set (**current production**) | `POST /api/session {password}` checks the password (constant-time) and sets a signed `forge_session` cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS, `SESSION_TTL_MS` lifetime). Each sign-in gets a random session id, and the owner is `session:<id>`, so people sharing the password can't see each other's jobs. 10 failures per client address in 15 min → 429. The Easy Auth header is ignored. |
+| `easyauth` | `REQUIRE_AUTH=1`, no password | App Service authentication (e.g. Okta via OpenID Connect) sets `X-MS-CLIENT-PRINCIPAL-ID`; that id is the owner. Missing → 401. Only safe behind App Service authentication, which strips client copies of the header. |
+| `none` | neither (local dev) | Everything belongs to `local`. |
+
+`GET /api/session` reports `{ mode, authenticated }`; the UI's `AuthGate` shows the login page in `password` mode until it's authenticated, and returns to it when any API call gets a 401. `DELETE /api/session` clears the cookie (Sign out). Sessions are stateless: sign-out removes the cookie from that browser, and replacing `SESSION_SECRET` invalidates every session.
+
+To try password mode locally:
+
+```bash
+ACCESS_PASSWORD='local-test-pass' npm run server
+```
+
 ## Azure deployment
 
-The app runs as one Linux container on App Service, behind Easy Auth, writing outputs to Blob Storage. The job store is in memory, so **keep the app at one instance**.
+The app runs as one Linux container on App Service, behind the shared-password login, writing outputs to Blob Storage. The job store is in memory, so **keep the app at one instance**.
 
 **For the full step-by-step procedure (prerequisites, portal and CLI steps, sign-in setup, verification checklist, updates, rollback, troubleshooting), see [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md).** This section is a summary.
 
@@ -160,13 +181,13 @@ APP_NAME=fallback-forge-prod SOURCE_URL=https://github.com/<org>/gif-forge infra
 
 1. **Resource group + Azure Container Registry (Basic).** The image is built in ACR (`az acr build -t fallback-forge:<git-sha> .`) for linux/amd64, with `VITE_SOURCE_URL` passed as a build arg.
 2. **App Service plan, Linux B3.** The web app runs the ACR image and pulls it with its system-assigned managed identity (`AcrPull` role, `acrUseManagedIdentityCreds`).
-3. **App settings:** `WEBSITES_PORT=8080`, `REQUIRE_AUTH=1`, `STORAGE=blob`, `AZURE_STORAGE_ACCOUNT=<account>`, `AZURE_STORAGE_CONTAINER=outputs`, `MAX_CONCURRENT_JOBS=2`. Add `BANNER_FORGE_CHROMIUM_NO_SANDBOX=1` **only if** `/healthz` or capture fails with Chromium sandbox errors.
+3. **App settings:** `WEBSITES_PORT=8080`, `ACCESS_PASSWORD=<team password>`, `SESSION_SECRET=<random, set once>`, `STORAGE=blob`, `AZURE_STORAGE_ACCOUNT=<account>`, `AZURE_STORAGE_CONTAINER=outputs`, `MAX_CONCURRENT_JOBS=2`. Add `BANNER_FORGE_CHROMIUM_NO_SANDBOX=1` **only if** `/healthz` or capture fails with Chromium sandbox errors.
 4. **General settings:** Always On, health check path `/healthz`, HTTPS only, minimum TLS 1.2.
-5. **Authentication (manual).** In the portal: *Web app → Authentication → Add identity provider → Microsoft*. Create a new app registration (single tenant), set *Restrict access* to **Require authentication**, and *Unauthenticated requests* to **HTTP 302 Found redirect**. Easy Auth then sets `X-MS-CLIENT-PRINCIPAL-ID` on every request it forwards and strips any copy a client sends.
+5. **Authentication.** A temporary shared password (`ACCESS_PASSWORD`, set by the script), because Entra ID isn't available. Okta via App Service's OpenID Connect provider is planned; see [AZURE_DEPLOYMENT.md Part D](AZURE_DEPLOYMENT.md#part-d-sign-in-temporary-shared-password).
 6. **Storage account.** Private container `outputs`, shared-key access disabled, lifecycle rule deleting blobs older than 7 days. The web app's identity has **Storage Blob Data Contributor** (upload) and **Storage Blob Delegator** (sign user-delegation SAS download URLs).
 7. **Logs.** Container logging to the file system is turned on (`az webapp log tail -g <rg> -n <app>`). Application Insights is optional.
 
-**Acceptance check:** a signed-in user can upload a ZIP on `https://<app>.azurewebsites.net`, watch progress for a batch longer than 4 minutes without the connection dropping, and download the GIF and report. A user who isn't signed in is redirected to sign-in.
+**Acceptance check:** after signing in with the team password, a user can upload a ZIP on `https://<app>.azurewebsites.net`, watch progress for a batch longer than 4 minutes without the connection dropping, and download the GIF and report. Without the password, the app shows only the login page and every `/api` call returns 401.
 
 To ship a new version, re-run the script, or just build and point the app at the new tag:
 
@@ -183,7 +204,8 @@ The engine looks for tools via explicit environment variables, then sibling loca
 - **Adaptive dithering always picks Light Bayer.** The report warns "Adaptive VMAF/CAMBI comparison was unavailable" when FFmpeg lacks `libvmaf`. Ubuntu's and Homebrew's default builds don't have it; the Docker image installs a pinned BtbN static GPL build and fails the build if the filter is missing. Check with `ffmpeg -hide_banner -filters | grep libvmaf`. Separately, libvmaf's CAMBI feature fails on very small frames (e.g. 120×60 or 128×64 fail; 300×250, 728×90 and 160×600 work), so tiny banners get the same warning even with libvmaf present.
 - **Gifski worker not found.** Run `npm run gifski:build`, or set `BANNER_FORGE_GIFSKI_WORKER`.
 - **Progress stops after about 4 minutes.** App Service's front end drops idle HTTP connections after roughly 230 s. Jobs keep running in the background regardless. The SSE stream sends a ping every 20 s, and `EventSource` reconnects with `Last-Event-ID`, so nothing is lost. If it still drops, check that nothing in between buffers `text/event-stream` responses. The server sends `X-Accel-Buffering: no` and `Cache-Control: no-transform`.
-- **401 on every API call in Azure.** `REQUIRE_AUTH=1` is set but Easy Auth isn't on yet, or the provider isn't requiring authentication.
+- **401 on every API call.** The session is missing or expired (sign in again). If you're on Easy Auth mode (`REQUIRE_AUTH=1` without `ACCESS_PASSWORD`), the provider isn't configured yet.
+- **Right password rejected.** The value was mangled by the shell when it was set (an unquoted `$`). Set it with single quotes.
 - **Downloads fail with 403 from Blob.** The web app identity is missing *Storage Blob Delegator*, or role assignments haven't propagated yet (allow a few minutes).
 - **Upload rejected (400/413).** The error message names the limit or path. Raise `MAX_*` variables if the content is legitimate.
 - **Assets fail to load.** Keep assets relative to the entry file and vendor remote fonts/scripts. The engine's loopback server blocks paths outside the banner folder.

@@ -1,13 +1,13 @@
 # Fallback Forge
 
-Fallback Forge is a web app for converting HTML5 banner packages into quality-controlled GIF fallbacks. The interface is React + TypeScript, Tailwind CSS, and shadcn/ui. A Node server (Fastify) accepts uploads and runs the existing Playwright capture and FFmpeg/Gifski engine as one child process per job. It is deployed as a single container on Azure App Service behind Entra ID sign-in.
+Fallback Forge is a web app for converting HTML5 banner packages into quality-controlled GIF fallbacks. The interface is React + TypeScript, Tailwind CSS, and shadcn/ui. A Node server (Fastify) accepts uploads and runs the existing Playwright capture and FFmpeg/Gifski engine as one child process per job. It is deployed as a single container on Azure App Service. For now, sign-in is a shared team password (Okta is planned).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     Browser["React UI\nTailwind + shadcn/ui"]
-    EasyAuth["App Service Easy Auth\nEntra ID"]
+    Login["Login page\nshared team password"]
     API["Node HTTP server\nserver/"]
     Jobs["In-memory job queue\nMAX_CONCURRENT_JOBS"]
     Engine["Engine CLI\nsidecar/bin convert"]
@@ -15,7 +15,7 @@ flowchart LR
     Encoder["FFmpeg + Gifski\nFPS, palette, dithering, quality"]
     Store["Outputs\nlocal disk or Azure Blob"]
 
-    Browser --> EasyAuth --> API --> Jobs --> Engine --> Capture --> Encoder --> Store
+    Browser --> Login --> API --> Jobs --> Engine --> Capture --> Encoder --> Store
     Engine -. "NDJSON events" .-> Jobs -. "SSE" .-> Browser
 ```
 
@@ -70,7 +70,7 @@ npm run server          # API on :8080
 npm run dev             # UI on :5173, proxies /api to :8080
 ```
 
-Open http://localhost:5173, add banner ZIPs or folders, and choose **Forge GIFs**. Without `REQUIRE_AUTH`, all local jobs belong to the owner `local`.
+Open http://localhost:5173, add banner ZIPs or folders, and choose **Forge GIFs**. Locally there's no sign-in unless you start the server with `ACCESS_PASSWORD='...'`; see [Authentication](docs/DEVELOPMENT.md#authentication).
 
 To run the production image:
 

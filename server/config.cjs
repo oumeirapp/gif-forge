@@ -18,6 +18,14 @@ function readConfig(env = process.env) {
   const storage = env.STORAGE || 'local';
   if (!['local', 'blob'].includes(storage)) throw new Error('STORAGE must be "local" or "blob".');
 
+  const accessPassword = env.ACCESS_PASSWORD || '';
+  if (accessPassword && accessPassword.length < 8) throw new Error('ACCESS_PASSWORD must be at least 8 characters.');
+  const requireAuth = env.REQUIRE_AUTH === '1';
+  // password: temporary shared password; easyauth: App Service authentication in front; none: local dev.
+  let authMode = 'none';
+  if (accessPassword) authMode = 'password';
+  else if (requireAuth) authMode = 'easyauth';
+
   return {
     port: readInteger(env, 'PORT', 8080, 0),
     host: env.HOST || '0.0.0.0',
@@ -31,7 +39,11 @@ function readConfig(env = process.env) {
       maxFiles: readInteger(env, 'MAX_FILES', 5000),
       maxBannersPerJob: readInteger(env, 'MAX_BANNERS_PER_JOB', 25),
     },
-    requireAuth: env.REQUIRE_AUTH === '1',
+    requireAuth,
+    authMode,
+    accessPassword,
+    sessionSecret: env.SESSION_SECRET || '',
+    sessionTtlMs: readInteger(env, 'SESSION_TTL_MS', 12 * 60 * 60 * 1000),
     storage,
     azure: {
       connectionString: env.AZURE_STORAGE_CONNECTION_STRING || '',
