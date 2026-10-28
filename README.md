@@ -150,7 +150,7 @@ The engine checks explicit environment variables, sibling locations (next to the
 - Remote fonts/scripts require network access and can make rendering less reproducible. Production jobs should vendor all assets.
 - GIF has a 256-color ceiling and 10 ms timing granularity. Rates such as 12, 15, and 24 FPS therefore use alternating frame delays while preserving total duration as closely as possible.
 - High-FPS, large-palette photo animation can produce multi-megabyte GIFs. The delivery search may still miss a strict target; it keeps dimensions fixed and reports the smallest candidate rather than silently discarding the output.
-- Adaptive quality scoring requires an FFmpeg build with `libvmaf` and CAMBI. Without it, the encoder uses Light Bayer and records a warning.
+- Adaptive quality scoring requires an FFmpeg build with `libvmaf` and CAMBI. Without it, the encoder uses Light Bayer and records a warning. The same fallback happens for very small banners, because libvmaf's CAMBI feature fails on tiny frames (120×60 and 128×64 failed in testing; 728×90, 300×250 and 160×600 work).
 - Cancellation and timeouts kill the job's whole process group. There are per-job limits (upload size, extracted size, file count, banner count, runtime) but no per-user quotas yet.
 - Jobs live in memory: run **one instance**. A restart forgets queued and running jobs; Blob outputs remain until the 7-day lifecycle rule deletes them.
 
