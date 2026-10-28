@@ -13,7 +13,8 @@
     "gifski:build": "node scripts/build-gifski-worker.mjs",
     "check": "npm run build && npm run gifski:test && npm run sidecar:test && npm run server:test",
     "server": "node server/index.cjs",
-    "server:test": "node --test server/test/*.test.cjs"
+    "server:test": "node --test server/test/*.test.cjs",
+    "postinstall": "node -e \"require('fs').existsSync('sidecar/package.json') && require('child_process').execSync('npm --prefix sidecar install --no-audit --no-fund', { stdio: 'inherit' })\""
   },
   "dependencies": {
     "@azure/identity": "^4.14.0",
