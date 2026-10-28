@@ -11,9 +11,9 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 | 2. HTTP server | ✅ | 28 tests; real curl E2E passes. |
 | 3. Frontend | ✅ | Browser-verified: ZIP + folder, cancel, refresh reattach. |
 | 4. Remove Tauri | ✅ | `npm run check` green; grep empty. |
-| 5. Container image | ⬜ | |
-| 6. Azure deployment | ⬜ | |
-| 7. Documentation | ⬜ | |
+| 5. Container image | 🟡 | Builds; `/healthz` 200; ZIP E2E OK with sandbox. One check left (adaptive/VMAF in container). |
+| 6. Azure deployment | 🟡 | `infra/deploy.sh` + docs written; ⚠️ not run (needs your Azure subscription); Easy Auth is a manual portal step. |
+| 7. Documentation | ✅ | README + DEVELOPMENT rewritten. |
 
 ## Phase 0: Baseline (2026-10-28)
 
@@ -83,3 +83,47 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 - `npm install` doesn't install `sidecar/` deps; run `npm run sidecar:install` too (the Dockerfile does this).
 - `npm audit --omit=dev` still lists `@azure/identity` → `@azure/msal-node` (high; npm's only suggested "fix" is a downgrade) and `shadcn` (low, already on `main`; `shadcn` is a CLI and could move to devDependencies). Re-check when new `@azure/identity` releases land.
 - `README.md` / `docs/DEVELOPMENT.md` still describe Tauri. That's Phase 7.
+
+## Phase 5: Container image
+
+- [x] `Dockerfile` (multi-stage): `rust:1-bookworm` builds `gifski-worker`; `node:22-bookworm-slim` runs `npm ci`, `npm --prefix sidecar ci --omit=dev`, `npm run build` (with `VITE_SOURCE_URL` build arg), then `npm prune --omit=dev`; runtime `mcr.microsoft.com/playwright:v1.62.1-noble` (matches the pinned `playwright-core@1.62.1`).
+- [x] FFmpeg: Ubuntu noble's `ffmpeg` 6.1.1 has **no libvmaf** (checked inside the base image), so the image installs BtbN `autobuild-2026-09-30-13-08` / `ffmpeg-n8.1.3-9-g29e619e767` GPL static (amd64 + arm64), verifies SHA-256 against the release's `checksums.sha256`, and runs `ffmpeg -filters | grep libvmaf` so the build fails if it's missing.
+- [x] Chromium: `/ms-playwright/chromium-*/chrome-linux*/chrome` symlinked to `/usr/local/bin/chromium` (the revision number changes between Playwright versions).
+- [x] Env: `BANNER_FORGE_FFMPEG=/usr/local/bin/ffmpeg`, `BANNER_FORGE_GIFSKI_WORKER=/usr/local/bin/gifski-worker`, `BANNER_FORGE_CHROMIUM=/usr/local/bin/chromium`, `PORT=8080`, `NODE_ENV=production`, `WORK_ROOT=/tmp/forge` (owned by `pwuser`); `USER pwuser`, `EXPOSE 8080`, `CMD ["node","server/index.cjs"]`.
+- [x] `.dockerignore` (node_modules, target, dist, .git, sidecar/node_modules, test dirs, local worker binary, .env).
+- [x] `docker build -t fallback-forge .` ✅ (arm64, Docker Desktop).
+- [x] `docker run -p 8092:8080 fallback-forge` **without** `BANNER_FORGE_CHROMIUM_NO_SANDBOX`: `/healthz` → 200 (`ffmpeg`, `chromium`, `gifskiWorker` all true); `/` and an SPA route → 200; ZIP with 2 banners → `complete` 2/2; download is a valid GIF89a. **The Chromium sandbox works under local Docker Desktop.**
+- [ ] Confirm adaptive dithering really ran VMAF/CAMBI in the container (no "comparison was unavailable" warning in the result). That run picked Light Bayer; the check was interrupted when the disk filled. Re-run once Docker Desktop is back:
+  ```bash
+  docker run -d --name forge-test -p 8092:8080 fallback-forge
+  # upload a ZIP (see docs/DEVELOPMENT.md "Driving the API by hand"), then:
+  curl -s localhost:8092/api/jobs/<jobId> | jq '.results[0].warnings'
+  ```
+  If it does warn, check `docker exec forge-test ffmpeg -hide_banner -filters | grep vmaf` and whether the `cambi` feature is in that libvmaf build.
+- [ ] Build once for linux/amd64 (what App Service runs). `az acr build` does this; locally use `docker buildx build --platform linux/amd64 .`
+
+**Incident (2026-10-28):** the base-image pulls and builds (Playwright, rust, node, plus build cache) filled the Mac's disk, and Docker Desktop's disk image reached 22 GB. Docker Desktop then got stuck mid-restart (`com.docker.backend` processes not exiting). Disk space has since recovered (17 GB free), but the build-cache prune hasn't run because the daemon is down. To fix: quit Docker Desktop from the menu bar (force quit if needed), start it, then `docker builder prune -af && docker image prune -f`.
+
+## Phase 6: Azure deployment
+
+- [x] `infra/deploy.sh` (Azure CLI, re-runnable, no secrets): resource group; ACR Basic + `az acr build` tagged with the git SHA; Linux B3 plan + web app on the ACR image; system-assigned identity with `AcrPull` + `acrUseManagedIdentityCreds`; storage account (TLS 1.2, no public blob access, shared key off), private `outputs` container, 7-day delete lifecycle rule; `Storage Blob Data Contributor` + `Storage Blob Delegator` for the app identity; app settings from §6.3; Always On, `/healthz` health check, HTTPS only, min TLS 1.2; container logging. `bash -n` passes (shellcheck isn't installed here).
+- [x] `docs/DEVELOPMENT.md` → new "Azure deployment" section, including the manual Easy Auth steps (Microsoft provider, require auth, 302 redirect) and the acceptance check.
+- [ ] ⚠️ **Not run.** It creates billable resources in your subscription. Run it yourself (or ask me to) with `APP_NAME=... SOURCE_URL=... infra/deploy.sh`.
+- [ ] Easy Auth: manual portal step after the script.
+- [ ] Acceptance on `*.azurewebsites.net`: signed-in upload, a batch longer than 4 minutes without the stream dropping, downloads via SAS; anonymous visitors redirected to sign-in.
+- [ ] Decide whether `BANNER_FORGE_CHROMIUM_NO_SANDBOX=1` is needed on App Service (check `/healthz` and a capture).
+
+**Decision:** the app uses `AZURE_STORAGE_ACCOUNT` + managed identity (user-delegation SAS) rather than a connection string, so there's no storage key to manage. `AZURE_STORAGE_CONNECTION_STRING` still works, e.g. for Azurite locally.
+
+## Phase 7: Documentation
+
+- [x] `README.md`: intro, architecture diagram, prerequisites, licensing, setup, commands, tool discovery, limits, and scaling rewritten for the web app; engine protocol and dithering sections kept (protocol text now describes the server's role and the event rewriting).
+- [x] `docs/DEVELOPMENT.md`: code map with `server/`, runtime walkthrough (upload → job → SSE → download → cleanup), env var table (every variable from §4 plus `HOST`, `LOG_LEVEL`, build-time vars), Azure deployment, troubleshooting (sandbox, missing libvmaf, 230 s idle timeout, 401/403/413), licensing (Gifski AGPL source link, FFmpeg GPL).
+- [x] `sidecar/README.md` updated in Phase 4.
+- [x] `npm run check` ✅ after the doc changes; Tauri grep still empty.
+
+## Remaining work
+
+1. Restart Docker Desktop, prune the cache, and finish the Phase 5 adaptive-dithering check (plus an amd64 build).
+2. Run `infra/deploy.sh`, turn on Easy Auth, and do the Phase 6 acceptance test.
+3. Optional: move `shadcn` to devDependencies; watch for an `@azure/identity`/`msal-node` fix.
