@@ -2,29 +2,16 @@
   "name": "banner-forge-sidecar",
   "version": "0.1.0",
   "private": true,
-  "description": "Deterministic HTML banner to compact GIF conversion sidecar",
+  "description": "Deterministic HTML banner to compact GIF conversion engine",
   "type": "commonjs",
   "bin": {
     "banner-forge-sidecar": "bin/banner-forge-sidecar.cjs"
   },
   "scripts": {
     "pretest": "node ../scripts/build-gifski-worker.mjs",
-    "test": "node --test test/*.test.cjs",
-    "build": "node ../scripts/build-sidecar.mjs"
+    "test": "node --test test/*.test.cjs"
   },
   "dependencies": {
-    "playwright-core": "^1.55.0"
-  },
-  "devDependencies": {
-    "@yao-pkg/pkg": "^6.6.0"
-  },
-  "pkg": {
-    "scripts": [
-      "lib/**/*.cjs",
-      "node_modules/playwright-core/**/*.js"
-    ],
-    "assets": [
-      "node_modules/playwright-core/**/*"
-    ]
+    "playwright-core": "1.62.1"
   }
 }

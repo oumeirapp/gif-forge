@@ -294,6 +294,8 @@ async function captureFrames(url, config, onProgress = () => {}) {
     args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--hide-scrollbars'],
   };
   if (executablePath) launchOptions.executablePath = executablePath;
+  // Some container hosts (e.g. App Service without user namespaces) don't allow Chromium's sandbox.
+  if (process.env.BANNER_FORGE_CHROMIUM_NO_SANDBOX === '1') launchOptions.args.push('--no-sandbox');
   let browser;
   try {
     browser = await chromium.launch(launchOptions);

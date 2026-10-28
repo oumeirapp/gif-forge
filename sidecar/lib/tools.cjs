@@ -50,7 +50,6 @@ function packagedSiblingCandidates(name) {
 
     if (targetExecutable) {
       candidates.push(path.join(directory, targetExecutable));
-      candidates.push(path.join(directory, 'src-tauri', 'binaries', targetExecutable));
     }
 
     return candidates;

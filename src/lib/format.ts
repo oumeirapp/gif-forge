@@ -4,11 +4,6 @@ export function fileName(path?: string) {
   return parts[parts.length - 1] ?? path
 }
 
-export function compactPath(path: string) {
-  const parts = path.split(/[\\/]/).filter(Boolean)
-  return parts.length > 3 ? `…/${parts.slice(-3).join("/")}` : path
-}
-
 export function formatBytes(bytes?: number) {
   if (bytes === undefined) return "—"
   const kilobytes = bytes / 1_000

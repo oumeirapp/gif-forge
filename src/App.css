@@ -79,6 +79,9 @@
 .brand-lockup h1 { @apply text-base leading-none font-semibold tracking-tight; }
 .brand-lockup p { @apply mt-1 truncate text-xs text-muted-foreground; }
 .engine-badge svg { @apply fill-success text-success; }
+.header-actions { @apply flex items-center gap-3; }
+.source-link { @apply inline-flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline; }
+.source-link svg { @apply size-3.5; }
 .app-main { @apply mx-auto flex w-full max-w-360 flex-1 flex-col gap-4 p-4 sm:p-6 lg:p-8; }
 .workspace-grid { @apply grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(18rem,0.85fr)]; }
 .primary-column { @apply flex min-w-0 flex-col gap-4; }
@@ -118,9 +121,9 @@
 .path-dropzone { @apply flex min-h-24 flex-col items-center justify-center gap-1 rounded-lg border border-dashed bg-muted/40 p-4 text-sm transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50; }
 .path-dropzone svg { @apply mb-1 size-5 text-signal; }
 .path-dropzone small { @apply text-xs text-muted-foreground; }
-.output-section { @apply border-t pt-4; }
-.output-picker { @apply w-full justify-start overflow-hidden; }
-.output-picker span { @apply truncate font-mono text-xs; }
+.upload-actions { @apply flex shrink-0 flex-wrap justify-end gap-2; }
+.upload-meta { @apply shrink-0 text-[0.65rem] text-muted-foreground tabular-nums; }
+.path-dropzone[data-dragging], .path-list[data-dragging] { @apply bg-muted ring-2 ring-signal/50; }
 
 .config-fields { @apply gap-4 sm:grid sm:grid-cols-2 lg:flex; }
 .config-wide { @apply sm:col-span-2; }
@@ -139,6 +142,9 @@
 .file-cell svg { @apply size-4 text-muted-foreground; }
 .result-detail-cell { @apply max-w-72 whitespace-normal; }
 .muted-cell { @apply block truncate text-muted-foreground; }
+.result-download { @apply flex min-w-0 items-center gap-1.5 truncate font-medium text-foreground underline-offset-2 hover:underline; }
+.result-download svg, .result-report svg { @apply size-3.5 shrink-0 text-signal; }
+.result-report { @apply mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline; }
 .result-metadata { @apply mt-1 block text-xs leading-snug text-muted-foreground; }
 .result-type { @apply mt-1 inline-block rounded-sm bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase; }
 .result-warning { @apply mt-1 block text-xs leading-snug text-foreground; }

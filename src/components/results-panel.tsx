@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, FileImage, Inbox, TriangleAlert } from "lucide-react"
+import { AlertCircle, CheckCircle2, Download, FileImage, FileJson, Inbox, TriangleAlert } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -53,11 +53,15 @@ function summaryText(summary: CompleteEvent, readyCount: number, failedCount: nu
 }
 
 function errorSourceName(error: ErrorEvent) {
-  const inputPath = error.inputPath ?? error.file
+  return error.inputPath ?? error.file ?? "Batch request"
+}
 
-  if (!inputPath) return "Batch request"
+function bannerName(result: ResultEvent) {
+  return result.input ?? result.inputPath ?? "Banner"
+}
 
-  return fileName(inputPath)
+function outputName(result: ResultEvent) {
+  return result.fileName ?? fileName(result.output ?? result.outputPath)
 }
 
 function ResultStatus({ result }: { result: ResultEvent }) {
@@ -113,10 +117,16 @@ export function ResultsPanel({ job }: { job: JobState }) {
                 const warningText = resultWarningText(result)
 
                 return (
-                  <TableRow key={`${result.input ?? result.inputPath ?? result.output ?? result.outputPath}-${index}`}>
-                    <TableCell><span className="file-cell"><FileImage aria-hidden="true" />{fileName(result.input ?? result.inputPath)}</span></TableCell>
-                    <TableCell className="result-detail-cell" title={result.output ?? result.outputPath}>
-                      <span className="muted-cell">{fileName(result.output ?? result.outputPath)}</span>
+                  <TableRow key={`${bannerName(result)}-${outputName(result)}-${index}`}>
+                    <TableCell><span className="file-cell"><FileImage aria-hidden="true" />{bannerName(result)}</span></TableCell>
+                    <TableCell className="result-detail-cell" title={outputName(result)}>
+                      {result.downloadUrl ? (
+                        <a className="result-download" href={result.downloadUrl} download={outputName(result)}>
+                          <Download aria-hidden="true" />{outputName(result)}
+                        </a>
+                      ) : (
+                        <span className="muted-cell">{outputName(result)}</span>
+                      )}
                       <span className="result-type">{
                         result.outputType === "delivery" ? "Delivery optimized"
                           : result.outputType === "png-frames" ? "PNG frame ZIP"
@@ -125,6 +135,11 @@ export function ResultsPanel({ job }: { job: JobState }) {
                       }</span>
                       <span className="result-metadata">{resultMetadata(result)}</span>
                       {warningText ? <span className="result-warning">{warningText}</span> : null}
+                      {result.reportUrl ? (
+                        <a className="result-report" href={result.reportUrl} download={result.reportFileName}>
+                          <FileJson aria-hidden="true" />Report
+                        </a>
+                      ) : null}
                     </TableCell>
                     <TableCell className="numeric-cell">{formatBytes(result.bytes)}</TableCell>
                     <TableCell><ResultStatus result={result} /></TableCell>
@@ -148,7 +163,7 @@ export function ResultsPanel({ job }: { job: JobState }) {
             <Inbox aria-hidden="true" />
             <div>
               <h3>No output yet</h3>
-              <p>{job.phase === "running" ? "The first GIF will appear after encoding." : "Choose your paths and export settings, then start the batch."}</p>
+              <p>{job.phase === "running" ? "The first GIF will appear after encoding." : "Add banners and choose export settings, then start the batch."}</p>
             </div>
           </div>
         )}

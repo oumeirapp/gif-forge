@@ -1,5 +1,8 @@
 import { Badge } from "@/components/ui/badge"
-import { Aperture, Circle } from "lucide-react"
+import { Aperture, Circle, Code } from "lucide-react"
+
+// Gifski is AGPL: a network service must offer its source, so keep this link visible.
+const SOURCE_URL = import.meta.env.VITE_SOURCE_URL
 
 export function AppHeader() {
   return (
@@ -13,10 +16,18 @@ export function AppHeader() {
           <p>HTML5 banner fallback production</p>
         </div>
       </div>
-      <Badge variant="outline" className="engine-badge">
-        <Circle data-icon="inline-start" />
-        Local engine
-      </Badge>
+      <div className="header-actions">
+        {SOURCE_URL ? (
+          <a className="source-link" href={SOURCE_URL} target="_blank" rel="noreferrer">
+            <Code aria-hidden="true" />
+            Source (AGPL)
+          </a>
+        ) : null}
+        <Badge variant="outline" className="engine-badge">
+          <Circle data-icon="inline-start" />
+          Cloud engine
+        </Badge>
+      </div>
     </header>
   )
 }

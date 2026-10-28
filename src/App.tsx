@@ -4,11 +4,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AppHeader } from "@/components/app-header"
 import { ConfigPanel } from "@/components/config-panel"
 import { FilmRail } from "@/components/film-rail"
-import { PathPanel } from "@/components/path-panel"
 import { ResultsPanel } from "@/components/results-panel"
 import { RunControls } from "@/components/run-controls"
+import { UploadPanel } from "@/components/upload-panel"
 import { useConversion } from "@/hooks/use-conversion"
-import type { ConversionFormConfig, ConversionFormConfigValidity } from "@/types/conversion"
+import type { ConversionFormConfig, ConversionFormConfigValidity, UploadItem } from "@/types/conversion"
 import "./App.css"
 
 const DEFAULT_CONFIG: ConversionFormConfig = {
@@ -26,10 +26,9 @@ const DEFAULT_CONFIG: ConversionFormConfig = {
 }
 
 function App() {
-  const [inputFolders, setInputFolders] = useState<string[]>([])
-  const [outputFolder, setOutputFolder] = useState("")
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [config, setConfig] = useState(DEFAULT_CONFIG)
-  const [dialogError, setDialogError] = useState("")
+  const [uploadError, setUploadError] = useState("")
   const { job, run, cancel } = useConversion()
   const running = job.phase === "running"
   const configValidity: ConversionFormConfigValidity = {
@@ -50,36 +49,25 @@ function App() {
     && configValidity.maxBytes
     && configValidity.jpegQuality
     && configValidity.jpegBackground
-  const ready = inputFolders.length > 0 && Boolean(outputFolder) && validConfig
+  const ready = uploadItems.length > 0 && validConfig
 
   let readinessTitle = "Batch ready"
-  let readinessDescription = `${inputFolders.length} folder${inputFolders.length === 1 ? "" : "s"} queued`
+  let readinessDescription = `${uploadItems.length} upload${uploadItems.length === 1 ? "" : "s"} queued`
 
   if (running) {
     readinessTitle = "Batch in progress"
     readinessDescription = job.message
-  } else if (inputFolders.length === 0 && !outputFolder) {
-    readinessTitle = "Input and output required"
-    readinessDescription = "Choose banner folders and an output folder"
-  } else if (inputFolders.length === 0) {
-    readinessTitle = "Input folders required"
-    readinessDescription = "Choose at least one banner folder"
-  } else if (!outputFolder) {
-    readinessTitle = "Output folder required"
-    readinessDescription = "Choose where finished GIFs should be written"
+  } else if (uploadItems.length === 0) {
+    readinessTitle = "Banners required"
+    readinessDescription = "Add banner ZIPs, HTML files, or folders"
   } else if (!validConfig) {
     readinessTitle = "Settings need attention"
     readinessDescription = "Correct the highlighted conversion settings"
   }
 
   function startBatch() {
-    setDialogError("")
-    void run({
-      protocolVersion: 4,
-      inputPaths: inputFolders,
-      outputDirectory: outputFolder,
-      config,
-    })
+    setUploadError("")
+    void run(uploadItems, config)
   }
 
   return (
@@ -94,11 +82,11 @@ function App() {
           currentFile={job.currentFile}
         />
 
-        {dialogError ? (
+        {uploadError ? (
           <Alert variant="destructive">
             <AlertCircle />
-            <AlertTitle>Folder access failed</AlertTitle>
-            <AlertDescription>{dialogError}</AlertDescription>
+            <AlertTitle>Upload problem</AlertTitle>
+            <AlertDescription>{uploadError}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -112,13 +100,11 @@ function App() {
 
         <div className="workspace-grid">
           <div className="primary-column">
-            <PathPanel
-              inputFolders={inputFolders}
-              outputFolder={outputFolder}
+            <UploadPanel
+              items={uploadItems}
               disabled={running}
-              onInputsChange={setInputFolders}
-              onOutputChange={setOutputFolder}
-              onDialogError={setDialogError}
+              onItemsChange={setUploadItems}
+              onUploadError={setUploadError}
             />
             <ResultsPanel job={job} />
           </div>
