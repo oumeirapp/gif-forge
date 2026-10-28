@@ -149,6 +149,8 @@ curl -OJ localhost:8080/api/jobs/<jobId>/files/<fileName>
 
 The app runs as one Linux container on App Service, behind Easy Auth, writing outputs to Blob Storage. The job store is in memory, so **keep the app at one instance**.
 
+**For the full step-by-step procedure (prerequisites, portal and CLI steps, sign-in setup, verification checklist, updates, rollback, troubleshooting), see [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md).** This section is a summary.
+
 `infra/deploy.sh` does steps 1–4 and 6–7 below with the Azure CLI. It's safe to re-run and uses managed identity throughout, so there are no secrets to store:
 
 ```bash

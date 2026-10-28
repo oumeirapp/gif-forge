@@ -79,7 +79,7 @@ docker build -t fallback-forge --build-arg VITE_SOURCE_URL=https://github.com/<o
 docker run --rm -p 8080:8080 fallback-forge
 ```
 
-To deploy to Azure App Service, see [Azure deployment](docs/DEVELOPMENT.md#azure-deployment) (`infra/deploy.sh`).
+To deploy to Azure App Service, follow [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md) (uses `infra/deploy.sh`).
 
 ## Commands
 

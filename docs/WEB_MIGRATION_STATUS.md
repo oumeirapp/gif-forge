@@ -12,7 +12,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 | 3. Frontend | ✅ | Browser-verified: ZIP + folder, cancel, refresh reattach. |
 | 4. Remove Tauri | ✅ | `npm run check` green; grep empty. |
 | 5. Container image | ✅ | arm64 build verified, incl. VMAF/CAMBI. amd64 is built by `az acr build` at deploy time (local builds blocked by Netskope TLS interception). |
-| 6. Azure deployment | 🟡 | `infra/deploy.sh` + docs written; ⚠️ not run (needs your Azure subscription); Easy Auth is a manual portal step. |
+| 6. Azure deployment | 🟡 | Code, script and step-by-step guide done ([AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)). ⚠️ Not deployed yet: needs your Azure subscription; Easy Auth is a manual portal step. |
 | 7. Documentation | ✅ | README + DEVELOPMENT rewritten. |
 
 ## Phase 0: Baseline (2026-10-28)
@@ -103,6 +103,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 ## Phase 6: Azure deployment
 
 - [x] `infra/deploy.sh` (Azure CLI, re-runnable, no secrets): resource group; ACR Basic + `az acr build` tagged with the git SHA; Linux B3 plan + web app on the ACR image; system-assigned identity with `AcrPull` + `acrUseManagedIdentityCreds`; storage account (TLS 1.2, no public blob access, shared key off), private `outputs` container, 7-day delete lifecycle rule; `Storage Blob Data Contributor` + `Storage Blob Delegator` for the app identity; app settings from §6.3; Always On, `/healthz` health check, HTTPS only, min TLS 1.2; container logging. `bash -n` passes (shellcheck isn't installed here).
+- [x] `docs/AZURE_DEPLOYMENT.md`: full step-by-step guide (prerequisites incl. role rights and proxy CA, script path, manual portal/CLI path, Easy Auth click-through, verification checklist E1–E5, updates, rollback, troubleshooting, teardown).
 - [x] `docs/DEVELOPMENT.md` → new "Azure deployment" section, including the manual Easy Auth steps (Microsoft provider, require auth, 302 redirect) and the acceptance check.
 - [ ] ⚠️ **Not run.** It creates billable resources in your subscription. Run it yourself (or ask me to) with `APP_NAME=... SOURCE_URL=... infra/deploy.sh`.
 - [ ] Easy Auth: manual portal step after the script.
@@ -123,3 +124,23 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 1. amd64 image: built by `az acr build` in `infra/deploy.sh` (decided; no Dockerfile change). Verify its `/healthz` after the first deploy.
 2. Run `infra/deploy.sh`, turn on Easy Auth, and do the Phase 6 acceptance test.
 3. Optional: move `shadcn` to devDependencies; watch for an `@azure/identity`/`msal-node` fix.
+
+## Completion audit (2026-10-28)
+
+Checked against every "Done when" in WEB_MIGRATION.md:
+
+| Phase | Done when | Result |
+|---|---|---|
+| 0 | Baseline recorded | ✅ |
+| 1 | `sidecar:test` passes; CLI converts fixture over stdin | ✅ |
+| 2 | `server:test` covers the 7 required cases; curl E2E ends in `complete` and downloads GIFs | ✅ 28 tests; E2E done |
+| 3 | `build` passes; ZIP + folder uploads produce GIFs; cancel; refresh reattaches | ✅ browser-verified |
+| 4 | `npm install && npm run check` passes; Tauri grep empty | ✅ after a fix: a **fresh clone failed** because `npm install` didn't install `sidecar/` deps (`Cannot find module 'playwright-core'`). Added a guarded `postinstall` (skips when `sidecar/package.json` is missing, as in the Docker web stage). Fresh clone now passes (2 + 24 + 28 tests). |
+| 5 | Image builds; `/healthz` 200; E2E ZIP; sandbox test | ✅ arm64 locally (sandbox works, VMAF/CAMBI confirmed). amd64 is built by `az acr build` (decision). |
+| 6 | Signed-in upload, >4 min batch, downloads, sign-in redirect on `*.azurewebsites.net` | ⬜ **Not done: requires deploying to your subscription** (guide Part E) |
+| 7 | README, DEVELOPMENT, licensing notes | ✅ |
+
+**Code migration:** complete. All code, tests, image, script and docs are in place and verified locally.
+**Overall migration:** not 100%. Phase 6's acceptance can only be proven by deploying (AZURE_DEPLOYMENT.md Parts B, D, E).
+
+Docker builds on the office network currently fail at `npm ci` and `cargo build` (Netskope intercepts registry TLS inside containers: `SELF_SIGNED_CERT_IN_CHAIN`). The postinstall guard was verified directly instead (no `sidecar/` → exits 0, runs nothing). `az acr build` isn't affected.
