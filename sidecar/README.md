@@ -2,25 +2,26 @@
 
 `banner-forge-sidecar` converts local HTML banners to optimized GIFs. Inputs may be direct HTML files or package directories containing `index.html`. It loads each banner from a loopback-only HTTP server in Chromium, waits for fonts/images/video metadata, detects common ad dimensions, finds Web Animations plus modern GSAP and legacy `window.tl` timelines, and captures a fixed-DPR timeline. Exact adjacent PNG frames are coalesced before FFmpeg encoding.
 
-## Install, test, and build
+## Install and test
 
 Run these commands from `sidecar/`:
 
 ```sh
 npm install
 npm test
-npm run build
 ```
 
-The build uses the CommonJS API from `@yao-pkg/pkg`, writes `dist/banner-forge-sidecar` (or `.exe`), and copies it to `src-tauri/binaries/` with the current Rust target triple. Override the package target with `BANNER_FORGE_PKG_TARGET` and the Rust filename target with `BANNER_FORGE_RUST_TARGET`.
+`npm test` first builds the Rust Gifski worker (`scripts/build-gifski-worker.mjs`) and installs it at `sidecar/bin/gifski-worker`, next to the CLI, where discovery finds it. Set `BANNER_FORGE_GIFSKI_INSTALL_DIR` to install it somewhere else.
 
-The packaged executable does not embed Chromium or FFmpeg. The Rust Gifski worker is built beside the Node executable and bundled by Tauri. Set these variables only when overriding discovery:
+The engine runs as a plain Node CLI. The web server (`server/`) starts one `banner-forge-sidecar convert` child process per job. Chromium and FFmpeg are not bundled. Set these variables only when overriding discovery:
 
 - Chromium: `BANNER_FORGE_CHROMIUM` (also accepts `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` or `CHROME_PATH`)
 - FFmpeg: `BANNER_FORGE_FFMPEG` (also accepts `FFMPEG_PATH`)
 - Gifski worker: `BANNER_FORGE_GIFSKI_WORKER`
 
-When no explicit path is set, the sidecar checks packaged sibling locations, standard browser locations, then `PATH` where appropriate.
+- Chromium sandbox: `BANNER_FORGE_CHROMIUM_NO_SANDBOX=1` adds `--no-sandbox`, for container hosts that don't allow Chromium's sandbox
+
+When no explicit path is set, the sidecar checks sibling locations (next to the CLI and in `bin/`), standard browser locations, then `PATH` where appropriate.
 
 ## Protocol
 
@@ -30,7 +31,7 @@ Pass one JSON request as the second CLI argument:
 banner-forge-sidecar convert '{"protocolVersion":4,"inputPaths":["/absolute/banner-package"],"outputDirectory":"/absolute/out","config":{"outputFps":15,"maxColors":256,"dithering":"adaptive","gifskiQuality":80,"maxDurationSeconds":30,"loopMode":"auto"}}'
 ```
 
-The same JSON can be sent as one line on stdin. The desktop app uses stdin so large batches are not constrained by platform command-line length limits.
+The same JSON can be sent as one line on stdin. The web server uses stdin so large batches are not constrained by command-line length limits.
 
 Protocol v4 separates frame rate, palette size, dithering, and Gifski quality. `outputFps` accepts 4, 12, 15, or 24 (default 15); `maxColors` accepts 64, 128, 192, or 256 (default 256). The sidecar captures at 24 FPS, then resamples at the selected output rate. `outputMode` accepts `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes and defaults to 150000. Legacy quality presets, editable capture-FPS fields, and Gifsicle modes are rejected.
 

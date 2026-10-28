@@ -1,0 +1,16 @@
+.git
+.claude
+.vscode
+node_modules
+sidecar/node_modules
+dist
+target
+gifski-worker/target
+sidecar/bin/gifski-worker
+sidecar/dist
+server/test
+sidecar/test
+*.log
+.env
+.env.*
+.DS_Store

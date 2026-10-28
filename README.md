@@ -1,33 +1,35 @@
 # Fallback Forge
 
-Fallback Forge is a Tauri v2 desktop workbench for converting HTML5 banner packages into quality-controlled GIF fallbacks. The interface is React + TypeScript, Tailwind CSS, and shadcn/ui. A bundled Node executable runs the Playwright capture and FFmpeg optimization pipeline outside the privileged Tauri webview.
+Fallback Forge is a web app for converting HTML5 banner packages into quality-controlled GIF fallbacks. The interface is React + TypeScript, Tailwind CSS, and shadcn/ui. A Node server (Fastify) accepts uploads and runs the existing Playwright capture and FFmpeg/Gifski engine as one child process per job. It is deployed as a single container on Azure App Service. For now, sign-in is a shared team password (Okta is planned).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    UI["React workbench\nTailwind + shadcn/ui"]
-    Tauri["Tauri v2\nDialog + scoped shell permissions"]
-    Sidecar["Node sidecar\nNDJSON progress protocol"]
-    Server["Loopback asset server\nOne package at a time"]
-    Browser["Playwright + Chromium\nFrame capture"]
-    Encoder["FFmpeg optimizer\nFPS + palette + dithering"]
-    Compress["Bundled Rust Gifski worker\nNumeric quality 1–100"]
-    Validate["GIF validator\nDimensions + timing + loop + bytes"]
-    Files["GIF + JSON report"]
+    Browser["React UI\nTailwind + shadcn/ui"]
+    Login["Login page\nshared team password"]
+    API["Node HTTP server\nserver/"]
+    Jobs["In-memory job queue\nMAX_CONCURRENT_JOBS"]
+    Engine["Engine CLI\nsidecar/bin convert"]
+    Capture["Loopback asset server\n+ headless Chromium"]
+    Encoder["FFmpeg + Gifski\nFPS, palette, dithering, quality"]
+    Store["Outputs\nlocal disk or Azure Blob"]
 
-    UI --> Tauri --> Sidecar
-    Sidecar --> Server --> Browser --> Encoder --> Compress --> Validate --> Files
-    Sidecar -. "progress / result / error" .-> UI
+    Browser --> Login --> API --> Jobs --> Engine --> Capture --> Encoder --> Store
+    Engine -. "NDJSON events" .-> Jobs -. "SSE" .-> Browser
 ```
 
-The ad never runs inside the application webview. The sidecar serves only the selected package over an ephemeral loopback port and renders it in a separate headless Chromium process.
+- Uploads (ZIPs, `.html` files, or folders) are unpacked into a per-job directory with path-traversal, symlink, size, and count checks.
+- Each job runs `node sidecar/bin/banner-forge-sidecar.cjs convert` in its own process group, so cancelling or timing out stops Chromium, FFmpeg, and gifski too.
+- Progress streams over Server-Sent Events, with heartbeats and `Last-Event-ID` replay. A page refresh reattaches to the running batch.
+- The browser never sees server paths. Results carry download URLs, which serve local files or redirect to short-lived Blob SAS URLs.
+- The ad never runs in the app's own page. The engine serves only that banner over an ephemeral loopback port and renders it in a separate headless Chromium process.
 
-For a contributor-oriented code map, runtime walkthrough, protocol contract, and troubleshooting guide, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md). For the planned move from desktop app to hosted web app on Azure App Service, see [`docs/WEB_MIGRATION.md`](docs/WEB_MIGRATION.md).
+For the code map, runtime walkthrough, environment variables, Azure deployment, and troubleshooting, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md). The migration from the earlier Tauri desktop app is described in [`docs/WEB_MIGRATION.md`](docs/WEB_MIGRATION.md) and tracked in [`docs/WEB_MIGRATION_STATUS.md`](docs/WEB_MIGRATION_STATUS.md).
 
 ## What it does
 
-- Lets the desktop user select multiple package folders; the sidecar API also accepts direct HTML entry files.
+- Accepts banner ZIPs (one banner, or one per top-level folder with `index.html`), folders, and direct HTML entry files, by drag-and-drop or file pickers.
 - Detects dimensions from `meta[name="ad.size"]` and common banner containers.
 - Waits for images, fonts, and video metadata before capture.
 - Detects Web Animations, GSAP 3, and legacy `window.tl` / TimelineMax duration.
@@ -40,58 +42,61 @@ For a contributor-oriented code map, runtime walkthrough, protocol contract, and
 - Can generate the configured Forge GIF, a delivery-size-limited GIF, or both from the same captured frames.
 - Optionally exports every captured source frame as PNG and/or JPEG ZIP archives. Each archive contains numbered frames plus a timing manifest; JPEG exports flatten transparency onto a selected matte color.
 - In Auto loop mode, exports a finite narrative once even when decorative elements animate indefinitely.
-- Writes a GIF and a detailed `.report.json` beside it.
+- Produces a GIF and a detailed `.report.json` per output, each downloadable from the results table.
 - Validates width, height, frame count, duration, loop behavior, and exact byte size.
 
 The Forge output uses its selected settings unchanged. A size-limited delivery output preserves original dimensions and searches a bounded set of lower-cost FPS, palette, dithering, and Gifski-quality combinations to meet the selected decimal-KB limit. If no candidate fits, it writes the smallest candidate and marks it over target. If capture safety limits prevent the selected output rate, the sidecar uses the highest available rate without duplicating frames and reports the adjustment explicitly.
 
 ## Prerequisites
 
-- Node.js 22 or newer
-- Rust and Cargo
-- A Chromium-family browser; Google Chrome is detected automatically on macOS
-- FFmpeg available beside the sidecar, at a common system path, or through `BANNER_FORGE_FFMPEG`
-- No separate Gifsicle installation is required; the pinned Rust Gifski worker is built and bundled with the app
+For local development:
 
-For commercial distribution, provide a reviewed FFmpeg build and comply with its configured LGPL/GPL terms. Gifski is AGPL-3.0-or-later, so distributing the bundled worker requires licensing review and the applicable source/distribution obligations; commercial licensing is available from its author. Chromium and FFmpeg are not embedded by this proof of concept because they materially increase installer size and require their own update/licensing process.
+- Node.js 22 or newer
+- Rust and Cargo (builds the Gifski worker)
+- A Chromium-family browser; Google Chrome is detected automatically on macOS
+- FFmpeg on `PATH`, at a common system path, or via `BANNER_FORGE_FFMPEG`. Adaptive dithering needs a build with `libvmaf`.
+
+For deployment, only Docker (or `az acr build`) is needed: the image bundles Chromium (Playwright base image), a pinned static FFmpeg with libvmaf, and the Gifski worker.
+
+Licensing: Gifski is AGPL-3.0-or-later. Because it is offered over a network, the UI shows a "Source (AGPL)" link (`VITE_SOURCE_URL`), and the `gifski-worker` source must stay publicly available. The image ships a GPL FFmpeg build, so FFmpeg's GPL obligations apply; Chromium comes under its own licences.
 
 ## Set up
 
 ```bash
 npm install
 npm run sidecar:install
-npm run sidecar:build
-npm run tauri:dev
+npm run gifski:build    # installs the worker at sidecar/bin/gifski-worker
+npm run server          # API on :8080
+npm run dev             # UI on :5173, proxies /api to :8080
 ```
 
-`sidecar:build` creates the Node executable, builds the Rust Gifski worker, and copies both to the platform filenames Tauri requires, for example:
+Open http://localhost:5173, add banner ZIPs or folders, and choose **Forge GIFs**. Locally there's no sign-in unless you start the server with `ACCESS_PASSWORD='...'`; see [Authentication](docs/DEVELOPMENT.md#authentication).
 
-```text
-src-tauri/binaries/banner-forge-sidecar-aarch64-apple-darwin
-src-tauri/binaries/gifski-worker-aarch64-apple-darwin
+To run the production image:
+
+```bash
+docker build -t fallback-forge --build-arg VITE_SOURCE_URL=https://github.com/<org>/gif-forge .
+docker run --rm -p 8080:8080 fallback-forge
 ```
 
-When Tauri invokes the build hook, the sidecar builder uses `TAURI_ENV_TARGET_TRIPLE`, so `tauri build --target ...` packages and names the matching Node executable. Direct sidecar builds use the local Rust host triple. `BANNER_FORGE_RUST_TARGET` and `BANNER_FORGE_PKG_TARGET` remain available for explicit CI overrides. Build and test on each target operating system and architecture; universal macOS sidecars are not generated by this proof of concept.
-
-Inputs are package folders containing `index.html` or direct `.html`/`.htm` files. Outputs are written to the selected directory as a GIF plus a matching `.report.json`; existing output names are preserved by adding a numeric suffix.
+To deploy to Azure App Service, follow [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md) (uses `infra/deploy.sh`).
 
 ## Commands
 
 ```bash
-npm run dev             # Browser-only UI development
-npm run build           # TypeScript and Vite production build
+npm run dev             # Vite UI with /api proxy
+npm run build           # TypeScript and Vite production build (dist/)
+npm run server          # HTTP server: API, SSE, and dist/ with SPA fallback
+npm run server:test     # Server tests (uploads, queue, cancel, SSE, auth)
 npm run gifski:test     # Rust Gifski worker unit tests
 npm run gifski:build    # Build and install the current-platform Rust worker
-npm run sidecar:test    # Node unit tests
-npm run sidecar:build   # Package and install the current-platform sidecar
-npm run check           # Frontend build, sidecar tests/package, and cargo check
-npm run tauri:dev       # Build the sidecar, then launch the desktop app
-npm run tauri:build     # Build the sidecar, then create desktop bundles
+npm run sidecar:test    # Engine tests (builds the worker first)
+npm run check           # build + gifski tests + sidecar tests + server tests
 ```
 
-## Sidecar protocol
+## Engine protocol
 
-The frontend starts one bounded sidecar process with a fixed `convert` argument and writes a single JSON request line to stdin. This avoids command-line length limits for large batches:
+The server starts one engine process per job with a fixed `convert` argument and writes a single JSON request line to stdin. This avoids command-line length limits for large batches. The paths are server-side job directories; browsers only send a `config` object and files to `POST /api/jobs`:
 
 ```json
 {
@@ -114,9 +119,9 @@ The frontend starts one bounded sidecar process with a fixed `convert` argument 
 }
 ```
 
-Standard output is newline-delimited JSON with `progress`, `result`, `error`, and `complete` events. Standard error is reserved for diagnostics. Each input is isolated: one failed package is reported without discarding successful outputs from the rest of the batch.
+Standard output is newline-delimited JSON with `progress`, `result`, `error`, and `complete` events. The server relays them over SSE, replacing `outputPath`/`reportPath` with `fileName`, `downloadUrl`, and `reportUrl`, and `inputPath` with the banner's display name. Standard error is reserved for diagnostics. Each input is isolated: one failed package is reported without discarding successful outputs from the rest of the batch.
 
-Protocol v4 rejects former presets, editable capture-FPS fields, and Gifsicle compression modes. `outputMode` is `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes. A delivery result also exposes its target, whether it was met, and the number of candidates tested. The desktop UI displays sizes in decimal KB.
+Protocol v4 rejects former presets, editable capture-FPS fields, and Gifsicle compression modes. `outputMode` is `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes. A delivery result also exposes its target, whether it was met, and the number of candidates tested. The UI displays sizes in decimal KB.
 
 `frameExport` is `none`, `png`, `jpeg`, or `both`. Frame archives use the original captured PNG sequence before GIF coalescing, preserving the capture timeline and dimensions. Each ZIP includes `manifest.json` with ordered filenames, timestamps, duration, dimensions, and effective capture FPS. JPEG output uses `jpegQuality` (1–100) and flattens transparent pixels onto `jpegBackground` (`#rrggbb`).
 
@@ -132,13 +137,12 @@ Gifski quality is an integer from 1–100. It is a perceptual quality score, not
 
 ## Tool discovery
 
-The sidecar checks explicit environment variables, packaged sibling locations, common absolute paths, and finally `PATH`.
+The engine checks explicit environment variables, sibling locations (next to the CLI and in `bin/`), common absolute paths, and finally `PATH`. The container sets all three explicitly, and `GET /healthz` reports whether each one resolves.
 
 - `BANNER_FORGE_CHROMIUM`
 - `BANNER_FORGE_FFMPEG`
-- `BANNER_FORGE_GIFSKI_WORKER` (development/diagnostic override for the bundled worker)
-
-This is important in desktop apps because spawned processes often receive a smaller environment than an interactive terminal.
+- `BANNER_FORGE_GIFSKI_WORKER`
+- `BANNER_FORGE_CHROMIUM_NO_SANDBOX=1` adds `--no-sandbox` on hosts that don't allow Chromium's sandbox
 
 ## Known limits
 
@@ -146,9 +150,10 @@ This is important in desktop apps because spawned processes often receive a smal
 - Remote fonts/scripts require network access and can make rendering less reproducible. Production jobs should vendor all assets.
 - GIF has a 256-color ceiling and 10 ms timing granularity. Rates such as 12, 15, and 24 FPS therefore use alternating frame delays while preserving total duration as closely as possible.
 - High-FPS, large-palette photo animation can produce multi-megabyte GIFs. The delivery search may still miss a strict target; it keeps dimensions fixed and reports the smallest candidate rather than silently discarding the output.
-- Adaptive quality scoring requires an FFmpeg build with `libvmaf` and CAMBI. Without it, the encoder uses Light Bayer and records a warning.
-- Cancellation stops the sidecar process. Process-tree supervision and resource quotas should be added before operating an untrusted multi-tenant service.
+- Adaptive quality scoring requires an FFmpeg build with `libvmaf` and CAMBI. Without it, the encoder uses Light Bayer and records a warning. The same fallback happens for very small banners, because libvmaf's CAMBI feature fails on tiny frames (120×60 and 128×64 failed in testing; 728×90, 300×250 and 160×600 work).
+- Cancellation and timeouts kill the job's whole process group. There are per-job limits (upload size, extracted size, file count, banner count, runtime) but no per-user quotas yet.
+- Jobs live in memory: run **one instance**. A restart forgets queued and running jobs; Blob outputs remain until the 7-day lifecycle rule deletes them.
 
-## Scaling beyond desktop
+## Scaling beyond one instance
 
-The same NDJSON request/result contract can back a queue worker. Store uploads in object storage, enqueue one job per banner, use isolated Chromium worker pools, cap CPU/memory/runtime, cache captured frames across optimization attempts, and publish the GIF/report atomically. Horizontal scaling is then driven by queue depth without changing the desktop workflow.
+The job store and queue are in memory, so the app must run as a single instance today. To scale out, move jobs and events to Azure Queue/Table storage (or similar), run engine workers that consume the queue, and keep the same NDJSON engine contract and SSE API.

@@ -6,9 +6,9 @@
 /dist/
 /dist-ssr/
 /sidecar/dist/
+/sidecar/bin/gifski-worker
+/sidecar/bin/gifski-worker.exe
 /gifski-worker/target/
-/src-tauri/binaries/*
-/src-tauri/target/
 
 # Logs
 /logs/

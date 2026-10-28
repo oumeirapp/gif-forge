@@ -43,11 +43,26 @@ export interface ConversionFormConfigValidity {
   jpegBackground: boolean
 }
 
-export interface ConversionRequest {
-  protocolVersion: 4
-  inputPaths: string[]
-  outputDirectory: string
-  config: ConversionConfig
+export type UploadKind = "zip" | "folder" | "html"
+
+export interface UploadItem {
+  id: string
+  name: string
+  kind: UploadKind
+  files: File[]
+  paths: string[]
+  bytes: number
+}
+
+export type ServerJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
+
+export interface JobSnapshot {
+  id: string
+  status: ServerJobStatus
+  banners: string[]
+  events: ProtocolEvent[]
+  lastEventId: number
+  results: ResultEvent[]
 }
 
 export type JobPhase = "idle" | "running" | "success" | "error" | "cancelled"
@@ -72,6 +87,10 @@ export interface ResultEvent {
   output?: string
   outputPath?: string
   reportPath?: string
+  fileName?: string
+  downloadUrl?: string
+  reportFileName?: string
+  reportUrl?: string
   bytes?: number
   durationMs?: number
   requestedFps?: number
@@ -108,6 +127,7 @@ export interface CompleteEvent {
   succeeded?: number
   failed?: number
   elapsedMs?: number
+  cancelled?: boolean
 }
 
 export type ProtocolEvent = ProgressEvent | ResultEvent | ErrorEvent | CompleteEvent
