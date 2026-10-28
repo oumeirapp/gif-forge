@@ -11,7 +11,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 | 2. HTTP server | ✅ | 28 tests; real curl E2E passes. |
 | 3. Frontend | ✅ | Browser-verified: ZIP + folder, cancel, refresh reattach. |
 | 4. Remove Tauri | ✅ | `npm run check` green; grep empty. |
-| 5. Container image | 🟡 | arm64 build verified, incl. VMAF/CAMBI. amd64 build ⚠️ blocked by Netskope TLS interception of crates.io (local network only). |
+| 5. Container image | ✅ | arm64 build verified, incl. VMAF/CAMBI. amd64 is built by `az acr build` at deploy time (local builds blocked by Netskope TLS interception). |
 | 6. Azure deployment | 🟡 | `infra/deploy.sh` + docs written; ⚠️ not run (needs your Azure subscription); Easy Auth is a manual portal step. |
 | 7. Documentation | ✅ | README + DEVELOPMENT rewritten. |
 
@@ -95,7 +95,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 - [x] `docker run -p 8092:8080 fallback-forge` **without** `BANNER_FORGE_CHROMIUM_NO_SANDBOX`: `/healthz` → 200 (`ffmpeg`, `chromium`, `gifskiWorker` all true); `/` and an SPA route → 200; ZIP with 2 banners → `complete` 2/2; download is a valid GIF89a. **The Chromium sandbox works under local Docker Desktop.**
 - [x] Adaptive dithering in the container (2026-10-28, arm64 image): libvmaf is present. A **300×250** banner gives `encoding.evaluation.mode = "vmaf-cambi"` with all four candidates scored (mean VMAF 89.2–89.9, p95 CAMBI 0.008–0.42) and no fallback warning. Light Bayer won on merit.
   - The earlier "unavailable" warning came from the 120×60 test fixture: **libvmaf's CAMBI feature fails on tiny frames** (`problem during vmaf_read_pictures`). Tested in the container: 120×60, 120×64, 128×64 fail; 300×250, 728×90, 160×600, 320×240 work; plain VMAF works at 120×60. Not an image problem; documented in README "Known limits" and DEVELOPMENT troubleshooting.
-- [ ] ⚠️ linux/amd64 build (`docker buildx build --platform linux/amd64 .`) fails at `cargo build`: `SSL certificate ... self-signed certificate in certificate chain` fetching `index.crates.io`. Cause: the office network's **Netskope** proxy intercepts crates.io TLS and re-signs it with the TBWA/Netskope CA (`ca.oss.de.goskope.com`). macOS trusts that CA; containers don't. arm64 containers fail the same way now, so this is a network issue, not an architecture or Dockerfile one. (The first arm64 build earlier in the day got through, so the interception policy or Docker's proxy routing changed after the Docker restart.) GitHub (FFmpeg download) isn't intercepted.
+- [x] ~~linux/amd64 local build~~. **Decision (2026-10-28): the Dockerfile stays as is; the amd64 image is built by `az acr build` during deployment.** Local amd64 build (`docker buildx build --platform linux/amd64 .`) fails at `cargo build`: `SSL certificate ... self-signed certificate in certificate chain` fetching `index.crates.io`. Cause: the office network's **Netskope** proxy intercepts crates.io TLS and re-signs it with the TBWA/Netskope CA (`ca.oss.de.goskope.com`). macOS trusts that CA; containers don't. arm64 containers fail the same way now, so this is a network issue, not an architecture or Dockerfile one. (The first arm64 build earlier in the day got through, so the interception policy or Docker's proxy routing changed after the Docker restart.) GitHub (FFmpeg download) isn't intercepted.
   - **The deploy path isn't affected:** `az acr build` (used by `infra/deploy.sh`) builds amd64 in Azure, outside Netskope.
   - Local options: (a) build off the corporate network/VPN; (b) ask IT to exempt `crates.io`/`index.crates.io`/`static.crates.io` from inspection; (c) add an opt-in BuildKit secret for the corporate CA (`--secret id=extra_ca,src=netskope.pem`, used via `CARGO_HTTP_CAINFO` and `NODE_EXTRA_CA_CERTS` only during the build, never baked into the image).
 **Incident (2026-10-28):** the base-image pulls and builds (Playwright, rust, node, plus build cache) filled the Mac's disk, and Docker Desktop's disk image reached 22 GB. Docker Desktop then got stuck mid-restart (`com.docker.backend` processes not exiting). Resolved: the stuck backend processes were killed, Docker Desktop was restarted, and `docker builder prune -af` + `docker image prune -f` reclaimed about 6.8 GB (25 GB free afterwards).
@@ -120,6 +120,6 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠️ blocked / need
 
 ## Remaining work
 
-1. amd64 image: build via `az acr build` (step 2 does this), or locally once crates.io TLS works in containers (see Phase 5 options).
+1. amd64 image: built by `az acr build` in `infra/deploy.sh` (decided; no Dockerfile change). Verify its `/healthz` after the first deploy.
 2. Run `infra/deploy.sh`, turn on Easy Auth, and do the Phase 6 acceptance test.
 3. Optional: move `shadcn` to devDependencies; watch for an `@azure/identity`/`msal-node` fix.
