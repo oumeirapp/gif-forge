@@ -23,7 +23,7 @@ flowchart LR
 
 The ad never runs inside the application webview. The sidecar serves only the selected package over an ephemeral loopback port and renders it in a separate headless Chromium process.
 
-For a contributor-oriented code map, runtime walkthrough, protocol contract, and troubleshooting guide, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+For a contributor-oriented code map, runtime walkthrough, protocol contract, and troubleshooting guide, see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md). For the planned move from desktop app to hosted web app on Azure App Service, see [`docs/WEB_MIGRATION.md`](docs/WEB_MIGRATION.md).
 
 ## What it does
 
