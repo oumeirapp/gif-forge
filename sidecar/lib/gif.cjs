@@ -106,6 +106,35 @@ function distributeFrameDelays(frameCount, targetCentiseconds) {
   return frameDelays;
 }
 
+// Rescales existing per-frame delays so they sum to targetCentiseconds while
+// keeping their relative lengths. Encoders merge identical consecutive frames
+// into one long frame (for example a held end card); spreading the total evenly
+// would erase that hold, so each frame keeps its share of the timeline instead.
+// Cumulative rounding keeps the total exact without drifting frame by frame.
+function scaleFrameDelays(sourceDelays, targetCentiseconds) {
+  const frameCount = sourceDelays.length;
+  const sourceTotal = sourceDelays.reduce((total, delay) => total + Math.max(0, delay), 0);
+  if (sourceTotal <= 0) return distributeFrameDelays(frameCount, targetCentiseconds);
+
+  const frameDelays = [];
+  let sourceElapsed = 0;
+  let targetElapsed = 0;
+  for (let index = 0; index < frameCount; index += 1) {
+    sourceElapsed += Math.max(0, sourceDelays[index]);
+    const remainingFrames = frameCount - index - 1;
+    const idealElapsed = index === frameCount - 1
+      ? targetCentiseconds
+      : Math.round((sourceElapsed / sourceTotal) * targetCentiseconds);
+    const nextElapsed = Math.min(
+      targetCentiseconds - remainingFrames,
+      Math.max(targetElapsed + 1, idealElapsed),
+    );
+    frameDelays.push(nextElapsed - targetElapsed);
+    targetElapsed = nextElapsed;
+  }
+  return frameDelays;
+}
+
 function normalizeGifDuration(filePath, targetDurationMs) {
   const parsed = parseGif(filePath);
   const hasDelayForEveryFrame = parsed.frameDelayOffsets.every((offset) => Number.isInteger(offset));
@@ -115,7 +144,8 @@ function normalizeGifDuration(filePath, targetDurationMs) {
     parsed.inspection.frames,
     Math.round(targetDurationMs / 10),
   );
-  const frameDelays = distributeFrameDelays(parsed.inspection.frames, targetCentiseconds);
+  const sourceDelays = parsed.frameDelayOffsets.map((offset) => parsed.buffer.readUInt16LE(offset));
+  const frameDelays = scaleFrameDelays(sourceDelays, targetCentiseconds);
   const maximumDelay = Math.max(...frameDelays);
 
   if (maximumDelay > 65_535) {
@@ -146,4 +176,4 @@ function validateGif(input, expected) {
   return inspection;
 }
 
-module.exports = { distributeFrameDelays, inspectGif, normalizeGifDuration, validateGif };
+module.exports = { distributeFrameDelays, scaleFrameDelays, inspectGif, normalizeGifDuration, validateGif };

@@ -22,7 +22,7 @@ const {
   gifDurationToleranceMs,
 } = require('../lib/helpers.cjs');
 const { buildFrameManifest, exportFrameArchive, frameExportFormats, normalizeHexColor, zipStore } = require('../lib/frames.cjs');
-const { distributeFrameDelays, inspectGif, validateGif } = require('../lib/gif.cjs');
+const { distributeFrameDelays, scaleFrameDelays, inspectGif, validateGif } = require('../lib/gif.cjs');
 const { isWithin } = require('../lib/server.cjs');
 const {
   DITHER_CANDIDATES,
@@ -454,6 +454,26 @@ test('GIF timing distributes centisecond rounding across the animation', () => {
   assert.equal(delays.filter((delay) => delay === 6).length, 5);
   assert.equal(delays.some((delay, index) => index > 0 && delay !== delays[index - 1]), true);
   assert.notDeepEqual(delays, [...Array(10).fill(7), ...Array(5).fill(6)]);
+});
+
+test('GIF timing keeps a held final frame when rescaling to the target duration', () => {
+  // 1.5 s of motion (22 frames at ~7 cs) followed by a 3 s end-card hold that the
+  // encoder merged into one frame. The hold must survive normalisation so looping
+  // GIFs pause on the last frame instead of restarting immediately.
+  const source = [...Array(22).fill(7), 306];
+  const delays = scaleFrameDelays(source, 450);
+
+  assert.equal(delays.length, source.length);
+  assert.equal(delays.reduce((total, delay) => total + delay, 0), 450);
+  assert.ok(delays.at(-1) >= 295 && delays.at(-1) <= 310, `final frame held for ${delays.at(-1)} cs`);
+  assert.ok(delays.slice(0, -1).every((delay) => delay >= 6 && delay <= 8));
+});
+
+test('GIF timing rescaling never produces zero-length frames and falls back when delays are missing', () => {
+  const tight = scaleFrameDelays([1, 1, 1, 500], 10);
+  assert.equal(tight.reduce((total, delay) => total + delay, 0), 10);
+  assert.ok(tight.every((delay) => delay >= 1));
+  assert.deepEqual(scaleFrameDelays([0, 0, 0], 9), distributeFrameDelays(3, 9));
 });
 
 test('server containment and ffconcat escaping are conservative', () => {
