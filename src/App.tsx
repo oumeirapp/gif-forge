@@ -18,6 +18,7 @@ const DEFAULT_CONFIG: ConversionFormConfig = {
   gifskiQuality: 80,
   maxDurationSeconds: 30,
   loopMode: "auto",
+  holdLastFrame: false,
   outputMode: "both",
   maxBytes: 150_000,
   frameExport: "none",

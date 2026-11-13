@@ -18,6 +18,7 @@ const {
   safeStem,
   uniqueOutputPaths,
   coalesceFrames,
+  holdFinalFrame,
   gifLoopArgument,
   gifDurationToleranceMs,
 } = require('../lib/helpers.cjs');
@@ -79,6 +80,7 @@ test('configuration defaults are explicit and every dropdown value is accepted',
     captureFps: 24,
     maxDurationSeconds: 30,
     loopMode: 'auto',
+    holdLastFrame: false,
     outputMode: 'forge',
     maxBytes: 150_000,
     frameExport: 'none',
@@ -104,6 +106,7 @@ test('configuration defaults are explicit and every dropdown value is accepted',
     captureFps: 24,
     maxDurationSeconds: 30,
     loopMode: 'once',
+    holdLastFrame: false,
     outputMode: 'forge',
     maxBytes: 150_000,
     frameExport: 'none',
@@ -117,6 +120,8 @@ test('configuration defaults are explicit and every dropdown value is accepted',
   assert.throws(() => normalizeConfig({ gifskiQuality: 101 }), /gifskiQuality/);
   assert.throws(() => normalizeConfig({ gifskiQuality: 80.5 }), /gifskiQuality/);
   assert.throws(() => normalizeConfig({ compression: 'none' }), /legacy/);
+  assert.equal(normalizeConfig({ holdLastFrame: true }).holdLastFrame, true);
+  assert.throws(() => normalizeConfig({ holdLastFrame: 'yes' }), /holdLastFrame/);
   assert.throws(() => normalizeConfig({ maxDurationSeconds: 0 }), /maxDurationSeconds/);
   assert.throws(() => normalizeConfig({ quality: 'high' }), /legacy/);
   assert.throws(() => normalizeConfig({ preferredBytes: 90_000 }), /legacy/);
@@ -474,6 +479,20 @@ test('GIF timing rescaling never produces zero-length frames and falls back when
   assert.equal(tight.reduce((total, delay) => total + delay, 0), 10);
   assert.ok(tight.every((delay) => delay >= 1));
   assert.deepEqual(scaleFrameDelays([0, 0, 0], 9), distributeFrameDelays(3, 9));
+});
+
+test('holding the final frame pads the animation to the target duration', () => {
+  // Mirrors a banner whose GSAP timeline ends at ~14 s while delivery expects 30 s.
+  const frames = [{ durationMs: 500 }, { durationMs: 13_000 }, { durationMs: 552 }];
+  assert.equal(holdFinalFrame(frames, 14_052, 30_000), 15_948);
+  assert.equal(frames.at(-1).durationMs, 16_500);
+  assert.equal(frames.reduce((total, frame) => total + frame.durationMs, 0), 30_000);
+
+  const alreadyLong = [{ durationMs: 100 }, { durationMs: 100 }];
+  assert.equal(holdFinalFrame(alreadyLong, 30_000, 30_000), 0);
+  assert.equal(alreadyLong.at(-1).durationMs, 100);
+  const still = [{ durationMs: 100 }];
+  assert.equal(holdFinalFrame(still, 100, 30_000), 0);
 });
 
 test('server containment and ffconcat escaping are conservative', () => {

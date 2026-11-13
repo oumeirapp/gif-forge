@@ -20,6 +20,7 @@ const DEFAULTS = Object.freeze({
   captureFps: CAPTURE_FPS,
   maxDurationSeconds: 30,
   loopMode: 'auto',
+  holdLastFrame: false,
   outputMode: 'forge',
   maxBytes: 150_000,
   frameExport: 'none',
@@ -66,6 +67,11 @@ function normalizeConfig(config = {}) {
     throw new Error('maxDurationSeconds must be a number from 0.1 through 60.');
   }
 
+  const holdLastFrame = config.holdLastFrame ?? DEFAULTS.holdLastFrame;
+  if (typeof holdLastFrame !== 'boolean') {
+    throw new Error('holdLastFrame must be true or false.');
+  }
+
   const outputMode = config.outputMode ?? DEFAULTS.outputMode;
   if (!OUTPUT_MODES.includes(outputMode)) {
     throw new Error(`outputMode must be one of: ${OUTPUT_MODES.join(', ')}.`);
@@ -97,6 +103,7 @@ function normalizeConfig(config = {}) {
     captureFps: CAPTURE_FPS,
     maxDurationSeconds,
     loopMode: normalizeLoopMode(config.loopMode),
+    holdLastFrame,
     outputMode,
     maxBytes,
     frameExport,
@@ -186,6 +193,17 @@ function coalesceFrames(frames, frameDurationMs) {
   return coalesced;
 }
 
+// Extends the final coalesced frame so the animation fills targetDurationMs.
+// Banners often end their timeline shortly after the end card appears; delivery
+// specs still expect the GIF to run to a fixed length (e.g. 30 s) on that card
+// before it loops. Returns the hold added in milliseconds (0 when nothing changed).
+function holdFinalFrame(frames, capturedDurationMs, targetDurationMs) {
+  const holdMs = Math.round(targetDurationMs - capturedDurationMs);
+  if (frames.length < 2 || !(holdMs > 0)) return 0;
+  frames.at(-1).durationMs += holdMs;
+  return holdMs;
+}
+
 function gifLoopArgument(loopMode) {
   if (loopMode === 'once') return '-1';
   if (loopMode === 'forever') return '0';
@@ -213,6 +231,7 @@ module.exports = {
   safeStem,
   uniqueOutputPaths,
   coalesceFrames,
+  holdFinalFrame,
   gifLoopArgument,
   gifDurationToleranceMs,
 };

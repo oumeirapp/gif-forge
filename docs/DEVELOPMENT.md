@@ -74,6 +74,7 @@ The request must contain `protocolVersion: 4`, a non-empty `inputPaths` array, a
 | `gifskiQuality` | integer `1`–`100` | `80` |
 | `maxDurationSeconds` | number `0.1`–`60` | `30` |
 | `loopMode` | `auto`, `once`, `infinite`/`forever`, or a non-negative repeat count | `auto` |
+| `holdLastFrame` | `true` pads the GIF to `maxDurationSeconds` by holding the final frame | `false` |
 | `outputMode` | `forge`, `size-limited`, `both` | `forge` |
 | `maxBytes` | whole-number delivery target in bytes | `150000` |
 | `frameExport` | `none`, `png`, `jpeg`, `both` | `none` |

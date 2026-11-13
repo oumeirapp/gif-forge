@@ -110,6 +110,7 @@ The server starts one engine process per job with a fixed `convert` argument and
     "gifskiQuality": 80,
     "maxDurationSeconds": 30,
     "loopMode": "auto",
+    "holdLastFrame": false,
     "outputMode": "both",
     "maxBytes": 150000,
     "frameExport": "both",
@@ -122,6 +123,8 @@ The server starts one engine process per job with a fixed `convert` argument and
 Standard output is newline-delimited JSON with `progress`, `result`, `error`, and `complete` events. The server relays them over SSE, replacing `outputPath`/`reportPath` with `fileName`, `downloadUrl`, and `reportUrl`, and `inputPath` with the banner's display name. Standard error is reserved for diagnostics. Each input is isolated: one failed package is reported without discarding successful outputs from the rest of the batch.
 
 Protocol v4 rejects former presets, editable capture-FPS fields, and Gifsicle compression modes. `outputMode` is `forge`, `size-limited`, or `both`; `maxBytes` is the delivery target in bytes. A delivery result also exposes its target, whether it was met, and the number of candidates tested. The UI displays sizes in decimal KB.
+
+`maxDurationSeconds` caps the capture; the GIF otherwise ends when the detected animation does. Set `holdLastFrame` to `true` to extend the final frame so the GIF lasts exactly `maxDurationSeconds` — for example a banner whose timeline ends at 14 s but must run 30 s on its end card before looping.
 
 `frameExport` is `none`, `png`, `jpeg`, or `both`. Frame archives use the original captured PNG sequence before GIF coalescing, preserving the capture timeline and dimensions. Each ZIP includes `manifest.json` with ordered filenames, timestamps, duration, dimensions, and effective capture FPS. JPEG output uses `jpegQuality` (1–100) and flattens transparent pixels onto `jpegBackground` (`#rrggbb`).
 

@@ -5,7 +5,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { startFileServer } = require('./server.cjs');
 const { captureFrames } = require('./capture.cjs');
-const { coalesceFrames, resolveInputPath, uniqueOutputPaths, gifDurationToleranceMs } = require('./helpers.cjs');
+const { coalesceFrames, holdFinalFrame, resolveInputPath, uniqueOutputPaths, gifDurationToleranceMs } = require('./helpers.cjs');
 const { deliveryProfiles, encodeGif, selectDeliveryCandidate } = require('./encode.cjs');
 const { exportFrameArchive, frameExportFormats } = require('./frames.cjs');
 const { validateGif } = require('./gif.cjs');
@@ -74,7 +74,11 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
       gifskiQuality: config.gifskiQuality,
       loopMode: capture.outputLoopMode,
     };
-    const expectedDurationMs = isStillImage ? undefined : capture.durationSeconds * 1_000;
+    const capturedDurationMs = capture.durationSeconds * 1_000;
+    const holdLastFrameMs = config.holdLastFrame && !isStillImage
+      ? holdFinalFrame(frames, capturedDurationMs, config.maxDurationSeconds * 1_000)
+      : 0;
+    const expectedDurationMs = isStillImage ? undefined : capturedDurationMs + holdLastFrameMs;
     const outputs = [];
 
     async function writeFrameOutput(format, outputPath) {
@@ -144,6 +148,7 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
           gifskiQuality: encoded.compression.quality,
           maxDurationSeconds: config.maxDurationSeconds,
           requestedLoopMode: config.loopMode,
+          holdLastFrame: config.holdLastFrame,
         },
         capture: {
           width: capture.width,
@@ -164,6 +169,8 @@ async function convertOne(inputPath, outputDirectory, config, emitProgress) {
           requestedGifskiQuality: encoded.compression.quality,
           paletteMode: 'stable-global',
           loopMode: capture.outputLoopMode,
+          holdLastFrameMs,
+          durationMs: expectedDurationMs ?? null,
           selectedCandidate: {
             id: encoded.selectedCandidate.id,
             label: encoded.selectedCandidate.label,

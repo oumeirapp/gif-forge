@@ -41,6 +41,10 @@ const LOOP_SELECT_ITEMS = [
   { value: "once", label: "Play once" },
   { value: "infinite", label: "Loop forever" },
 ]
+const LAST_FRAME_SELECT_ITEMS = [
+  { value: "end", label: "End with animation" },
+  { value: "hold", label: "Hold until max duration" },
+]
 const OUTPUT_MODE_SELECT_ITEMS = [
   { value: "forge", label: "Forge only" },
   { value: "size-limited", label: "Size-limited only" },
@@ -227,7 +231,7 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
             ) : null}
           </Field>
 
-          <Field className="loop-field" data-disabled={disabled || undefined}>
+          <Field data-disabled={disabled || undefined}>
             <FieldLabel htmlFor="loop-mode">Playback loop</FieldLabel>
             <Select
               items={LOOP_SELECT_ITEMS}
@@ -247,6 +251,32 @@ export function ConfigPanel({ config, validity, disabled, onChange }: ConfigPane
               </SelectContent>
             </Select>
             <FieldDescription id="loop-mode-description">Auto follows source behavior.</FieldDescription>
+          </Field>
+
+          <Field data-disabled={disabled || undefined}>
+            <FieldLabel htmlFor="last-frame">Last frame</FieldLabel>
+            <Select
+              items={LAST_FRAME_SELECT_ITEMS}
+              value={config.holdLastFrame ? "hold" : "end"}
+              disabled={disabled}
+              onValueChange={(value) => onChange({ ...config, holdLastFrame: value === "hold" })}
+            >
+              <SelectTrigger id="last-frame" className="config-select" aria-describedby="last-frame-description">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {LAST_FRAME_SELECT_ITEMS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FieldDescription id="last-frame-description">
+              {config.holdLastFrame
+                ? `Pads the GIF to ${config.maxDurationSeconds} s on its final frame.`
+                : "GIF ends when the animation does."}
+            </FieldDescription>
           </Field>
 
           <Field className="config-wide" data-disabled={disabled || undefined}>

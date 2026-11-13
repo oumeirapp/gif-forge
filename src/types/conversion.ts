@@ -12,6 +12,7 @@ export interface ConversionConfig {
   gifskiQuality: number
   maxDurationSeconds: number
   loopMode: LoopMode
+  holdLastFrame: boolean
   outputMode: OutputMode
   maxBytes: number
   frameExport: FrameExportMode
@@ -26,6 +27,7 @@ export interface ConversionFormConfig {
   gifskiQuality: number
   maxDurationSeconds: number
   loopMode: LoopMode
+  holdLastFrame: boolean
   outputMode: OutputMode
   maxBytes: number
   frameExport: FrameExportMode
